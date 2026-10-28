@@ -1,0 +1,110 @@
+name: Release
+
+# Builds a Seijaku release on Mozilla's own Gecko engine (Firefox's signed
+# files, unchanged) with seijaku.exe as a launcher, a Windows installer
+# (Inno Setup) and a portable zip, then publishes them as a GitHub
+# release tagged v<version>.
+#
+# NOTE: this file cannot be pushed by the GitHub App, so it lives here
+# for adding via the GitHub web UI: Add file > Create new file, path
+# .github/workflows/release.yml, paste this, commit to main.
+
+run-name: Release ${{ inputs.version }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version, like 0.1.0"
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the version
+        shell: pwsh
+        run: |
+          if ($env:VERSION -notmatch '^\d+\.\d+\.\d+$') { throw "version must look like 0.1.0, not $env:VERSION" }
+          $inApp = [regex]::Match((Get-Content -Raw shell/chrome/content/seijaku.js), 'const SEIJAKU_VERSION = "([^"]+)"').Groups[1].Value
+          if ($inApp -ne $env:VERSION) { throw "seijaku.js says SEIJAKU_VERSION = $inApp; set it to $env:VERSION first" }
+          gh release view "v$env:VERSION" 2>$null
+          if ($LASTEXITCODE -eq 0) { throw "v$env:VERSION is already released" }
+          exit 0
+
+      # Mozilla's own Firefox build, kept exactly as Mozilla signed it.
+      - name: Download Mozilla's Gecko (Firefox release build)
+        shell: pwsh
+        run: |
+          Invoke-WebRequest "https://download.mozilla.org/?product=firefox-latest-ssl&os=win64&lang=en-US" -OutFile "$env:RUNNER_TEMP\firefox-setup.exe"
+          "Downloaded Firefox installer: $((Get-Item "$env:RUNNER_TEMP\firefox-setup.exe").Length / 1MB) MB"
+
+      - name: Package Seijaku
+        shell: pwsh
+        run: |
+          powershell -ExecutionPolicy Bypass -File scripts\build\package.ps1 -Installer "$env:RUNNER_TEMP\firefox-setup.exe" -Out out
+          Get-ChildItem out\seijaku | Select-Object Name
+
+      - name: Build the installer
+        shell: pwsh
+        run: |
+          $iscc = @("${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "$env:ProgramFiles\Inno Setup 6\ISCC.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $iscc) {
+            choco install innosetup -y --no-progress | Out-Null
+            $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          }
+          & $iscc /Q "/DAppVersion=$env:VERSION" "/DAppDir=$PWD\out\seijaku" "/DOutDir=$PWD\release" installer\seijaku.iss
+          if ($LASTEXITCODE) { throw 'Inno Setup failed' }
+          Compress-Archive out\seijaku "release\Seijaku-$env:VERSION-win64-portable.zip"
+          Get-ChildItem release | Select-Object Name, @{n='MB';e={[math]::Round($_.Length / 1MB)}}
+
+      # Install it silently, check the files land, then uninstall it.
+      # The profile in %APPDATA%\Seijaku is not touched by uninstall.
+      - name: Test the installer
+        shell: pwsh
+        run: |
+          $setup = Get-Item "release\SeijakuSetup-$env:VERSION.exe"
+          $p = Start-Process $setup.FullName -PassThru -Wait -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/CURRENTUSER', '/NORESTART'
+          if ($p.ExitCode) { throw "installer exited with $($p.ExitCode)" }
+          $dir = "$env:LOCALAPPDATA\Programs\Seijaku"
+          foreach ($f in 'seijaku.exe', 'firefox.exe', 'xul.dll', 'seijaku\application.ini', 'unins000.exe') {
+            if (-not (Test-Path (Join-Path $dir $f))) { throw "installed app has no $f" }
+          }
+          $lnk = Get-ChildItem "$env:APPDATA\Microsoft\Windows\Start Menu\Programs" -Recurse -Filter 'Seijaku.lnk'
+          if (-not $lnk) { throw 'no Start menu shortcut' }
+          "Installed to $dir, shortcut $($lnk.FullName)"
+          $u = Start-Process "$dir\unins000.exe" -PassThru -Wait -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART'
+          Start-Sleep 10
+          if (Test-Path "$dir\seijaku.exe") { throw 'uninstall left seijaku.exe behind' }
+          "Uninstalled cleanly"
+
+      - name: Publish the GitHub release
+        shell: pwsh
+        run: |
+          $changes = "docs/releases/$env:VERSION.md"
+          $notes = @"
+          Seijaku $env:VERSION for Windows 10 and 11 (64-bit), on Mozilla's Gecko engine from Firefox, unchanged.
+
+          - **SeijakuSetup-$env:VERSION.exe**: the installer. It installs for you alone without admin rights, and needs no Firefox first.
+          - **Seijaku-$env:VERSION-win64-portable.zip**: no install. Unzip and run Seijaku.bat; the profile stays in the profile folder next to it.
+
+          The files aren't code-signed yet, so Windows SmartScreen may say "Windows protected your PC". Choose More info, then Run anyway.
+
+          Built by [this run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) from commit ${{ github.sha }}.
+          "@
+          $notes = ($notes -split "`n" | ForEach-Object { $_ -replace '^          ', '' }) -join "`n"
+          if (Test-Path $changes) { $notes = (Get-Content -Raw $changes).Trim() + "`n`n" + $notes }
+          Set-Content notes.md $notes
+          gh release create "v$env:VERSION" (Get-ChildItem release\*).FullName --target ${{ github.sha }} --title "Seijaku $env:VERSION" --notes-file notes.md
