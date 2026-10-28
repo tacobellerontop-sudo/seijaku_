@@ -2,6 +2,8 @@
 pref("toolkit.defaultChromeURI", "chrome://seijaku/content/seijaku.xhtml");
 pref("toolkit.singletonWindowType", "seijaku:main");
 
+pref("seijaku.update.enabled", true);          // check GitHub for a new release on startup, at most once a day
+pref("seijaku.update.lastCheck", 0);           // seconds since the epoch of the last check
 pref("seijaku.theme", "ink");                  // "ink" (dark) or "paper" (light)
 pref("seijaku.homepage", "seijaku:home");      // seijaku:home, about:blank or any address
 pref("seijaku.searchUrl", "https://duckduckgo.com/?q=%s");

@@ -12,7 +12,9 @@ const Theme = ChromeUtils.importESModule("resource://seijaku/Theme.sys.mjs");
 const PREF = "seijaku.";
 const SESSION_FILE = "seijaku-session.json";
 const MESSAGE_MS = 4000;
-const SEIJAKU_VERSION = "0.1.5";
+const SEIJAKU_VERSION = "0.1.6";
+const UPDATE_REPO = "tacobellerontop-sudo/seijaku_";
+const UPDATE_CHECK_MS = 24 * 60 * 60 * 1000;
 
 const PAGES = {
   "seijaku:home": "chrome://seijaku/content/pages/home.html",
@@ -81,6 +83,8 @@ var Seijaku = {
   history: [],
   historyIndex: -1,
   _messageTimer: null,
+  _pendingUpdate: null,
+  _updating: false,
 
   get $tabbar() {
     return document.getElementById("tabbar");
@@ -138,6 +142,200 @@ var Seijaku = {
       }
     });
     this._sleepTimer = setInterval(() => this.sleepIdleTabs(), 60 * 1000);
+    this.maybeCheckForUpdates();
+  },
+
+  // -------------------------------------------------------------- updates
+  //
+  // Auto-update, the small way: once a day at most, ask GitHub for the
+  // latest release. If there is a newer one, say so in the message line
+  // and remember it; ":update" then downloads the installer, hands it
+  // to a tiny .bat that waits for this process to exit (so Inno is
+  // never fighting a running browser), installs silently, and starts
+  // Seijaku again. Nothing is downloaded or installed without the
+  // ":update" step except the one small release check. The portable
+  // build has no installer to run, so it just opens the release page.
+
+  versionParts(version) {
+    return String(version).replace(/^v/, "").split(".").map(n => parseInt(n, 10) || 0);
+  },
+
+  isNewer(version) {
+    let latest = this.versionParts(version);
+    let current = this.versionParts(SEIJAKU_VERSION);
+    for (let i = 0; i < Math.max(latest.length, current.length); i++) {
+      if ((latest[i] || 0) > (current[i] || 0)) {
+        return true;
+      }
+      if ((latest[i] || 0) < (current[i] || 0)) {
+        return false;
+      }
+    }
+    return false;
+  },
+
+  async checkForUpdates(announce) {
+    let release;
+    try {
+      let response = await fetch(`https://api.github.com/repos/${UPDATE_REPO}/releases/latest`, {
+        headers: { Accept: "application/vnd.github+json" },
+      });
+      if (!response.ok) {
+        throw new Error(`GitHub answered ${response.status}`);
+      }
+      release = await response.json();
+    } catch (e) {
+      if (announce) {
+        this.showMessage(`Couldn't check for updates: ${e.message}`, "error");
+      }
+      return null;
+    }
+    try {
+      Services.prefs.setIntPref(PREF + "update.lastCheck", Math.floor(Date.now() / 1000));
+    } catch (e) { /* a missed timestamp only means checking again sooner */ }
+    let tag = release.tag_name || "";
+    if (!this.isNewer(tag)) {
+      if (announce) {
+        this.showMessage("Seijaku is up to date");
+      }
+      return null;
+    }
+    let installer = (release.assets || []).find(a => a.name.startsWith("SeijakuSetup-") && a.name.endsWith(".exe"));
+    this._pendingUpdate = { version: tag.replace(/^v/, ""), url: installer?.browser_download_url, page: release.html_url };
+    this.showMessage(`Seijaku ${this._pendingUpdate.version} is available — type :update to install it`);
+    return this._pendingUpdate;
+  },
+
+  maybeCheckForUpdates() {
+    try {
+      if (!this.pref("update.enabled", true)) {
+        return;
+      }
+      let last = this.pref("update.lastCheck", 0) * 1000;
+      if (Date.now() - last < UPDATE_CHECK_MS) {
+        return;
+      }
+    } catch (e) {
+      return;
+    }
+    this.checkForUpdates(false).catch(() => {});
+  },
+
+  isInstalledBuild() {
+    // The installer leaves unins000.exe next to the engine; the
+    // portable zip has Seijaku.bat there instead.
+    try {
+      let dir = Services.dirsvc.get("CurProcD", Ci.nsIFile).clone();
+      dir.append("unins000.exe");
+      return dir.exists();
+    } catch (e) {
+      return true;
+    }
+  },
+
+  async installUpdate() {
+    if (this._updating) {
+      this.showMessage("Update already in progress");
+      return;
+    }
+    let pending = this._pendingUpdate || (await this.checkForUpdates(true));
+    if (!pending) {
+      return;
+    }
+    if (!this.isInstalledBuild()) {
+      this.showMessage("This is the portable build — opening the release page instead");
+      this.openTab(pending.page, { afterCurrent: true });
+      return;
+    }
+    if (!pending.url) {
+      this.showMessage("No installer found in that release — opening its page instead");
+      this.openTab(pending.page, { afterCurrent: true });
+      return;
+    }
+    this._updating = true;
+    try {
+      this.showMessage(`Downloading Seijaku ${pending.version}…`);
+      let tmp = Services.dirsvc.get("TmpD", Ci.nsIFile);
+      let installerName = `SeijakuSetup-${pending.version}.exe`;
+      let installerFile = tmp.clone();
+      installerFile.append(installerName);
+      await this.downloadToFile(pending.url, installerFile);
+      let batFile = tmp.clone();
+      batFile.append("seijaku-update.bat");
+      let bat = [
+        "@echo off",
+        ":wait",
+        'tasklist /FI "IMAGENAME eq seijaku.exe" 2>nul | find /I "seijaku.exe" >nul',
+        "if not errorlevel 1 timeout /t 1 /nobreak >nul & goto wait",
+        `"${installerFile.path}" /VERYSILENT /NORESTART /SUPPRESSMSGBOXES`,
+        'start "" "%LOCALAPPDATA%\\Programs\\Seijaku\\seijaku.exe" -app "%LOCALAPPDATA%\\Programs\\Seijaku\\seijaku\\application.ini"',
+        'del "%~f0"',
+        "",
+      ].join("\r\n");
+      await this.writeTextFile(batFile, bat);
+      let cmd = Services.dirsvc.get("WinD", Ci.nsIFile);
+      cmd.append("System32");
+      cmd.append("cmd.exe");
+      let process = Cc["@mozilla.org/process/util;1"].createInstance(Ci.nsIProcess);
+      process.init(cmd);
+      process.run(false, ["/c", batFile.path], 2);
+      try {
+        Services.startup.quit(Ci.nsIAppStartup.eAttemptQuit);
+      } catch (e) {
+        window.close();
+      }
+    } catch (e) {
+      this._updating = false;
+      this.showMessage(`Update failed: ${e.message} — opening the release page instead`, "error");
+      this.openTab(pending.page, { afterCurrent: true });
+    }
+  },
+
+  downloadToFile(url, file) {
+    // Streams to disk, so the ~90 MB installer never sits in memory.
+    return new Promise((resolve, reject) => {
+      let persist = Cc["@mozilla.org/embedding/browser/nsWebBrowserPersist;1"]
+        .createInstance(Ci.nsIWebBrowserPersist);
+      persist.persistFlags = Ci.nsIWebBrowserPersist.PERSIST_FLAGS_FROM_CACHE |
+        Ci.nsIWebBrowserPersist.PERSIST_FLAGS_REPLACE_EXISTING_FILES;
+      persist.progressListener = {
+        onStateChange(_progress, _request, stateFlags, status) {
+          if (stateFlags & Ci.nsIWebProgressListener.STATE_STOP) {
+            if (status == 0) {
+              resolve();
+            } else {
+              reject(new Error(`download failed (${status})`));
+            }
+          }
+        },
+        onProgressChange() {},
+        onLocationChange() {},
+        onStatusChange() {},
+        onSecurityChange() {},
+        onContentBlockingEvent() {},
+        QueryInterface: ChromeUtils.generateQI([Ci.nsIWebProgressListener]),
+      };
+      try {
+        persist.saveURI(
+          Services.io.newURI(url), null, null, null, null, file, null
+        );
+      } catch (e) {
+        reject(e);
+      }
+    });
+  },
+
+  async writeTextFile(file, text) {
+    try {
+      let { IOUtils } = ChromeUtils.importESModule("resource://gre/modules/IOUtils.sys.mjs");
+      await IOUtils.write(file.path, new TextEncoder().encode(text));
+      return;
+    } catch (e) { /* fall through to the stream writer */ }
+    let stream = Cc["@mozilla.org/network/file-output-stream;1"]
+      .createInstance(Ci.nsIFileOutputStream);
+    stream.init(file, 0x02 | 0x08 | 0x20, 0o600, 0);
+    stream.write(text, text.length);
+    stream.close();
   },
 
   observe(subject, topic, data) {
@@ -842,6 +1040,12 @@ var Commands = {
         }
       }
       Seijaku.showMessage(`Put ${n} tab${n == 1 ? "" : "s"} to sleep`);
+    },
+  },
+  update: {
+    usage: "update  (check for a new version, download it and install it)",
+    run() {
+      Seijaku.installUpdate();
     },
   },
   help: {

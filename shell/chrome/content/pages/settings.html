@@ -11,7 +11,7 @@
 <body>
   <main>
     <h1>settings</h1>
-    <p class="muted">Four settings. Everything else is already decided: quiet, light, and out of the way.</p>
+    <p class="muted">A few settings. Everything else is already decided: quiet, light, and out of the way.</p>
     <label>
       Theme
       <select id="setting-theme">
@@ -30,6 +30,10 @@
     <label>
       Home page
       <input id="setting-homepage" type="text" spellcheck="false" />
+    </label>
+    <label>
+      <input id="setting-update" type="checkbox" />
+      Check for updates on startup (at most once a day; install with :update)
     </label>
     <p id="saved" class="muted" hidden="hidden">Saved.</p>
   </main>

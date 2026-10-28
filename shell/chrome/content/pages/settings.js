@@ -1,4 +1,4 @@
-/* Seijaku settings: four settings, saved as soon as they change. */
+/* Seijaku settings: saved as soon as they change. */
 
 "use strict";
 
@@ -24,9 +24,20 @@ function bind(id, pref, kind) {
   });
 }
 
+function bindBool(id, pref) {
+  let el = document.getElementById(id);
+  el.checked = Services.prefs.getBoolPref(pref, true);
+  el.addEventListener("change", () => {
+    Services.prefs.setBoolPref(pref, el.checked);
+    document.getElementById("saved").hidden = false;
+    setTimeout(() => (document.getElementById("saved").hidden = true), 2000);
+  });
+}
+
 window.addEventListener("DOMContentLoaded", () => {
   bind("setting-theme", "seijaku.theme", "string");
   bind("setting-sleep", "seijaku.tabs.unloadAfterMinutes", "int");
   bind("setting-search", "seijaku.searchUrl", "string");
   bind("setting-homepage", "seijaku.homepage", "string");
+  bindBool("setting-update", "seijaku.update.enabled");
 });
