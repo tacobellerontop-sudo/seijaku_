@@ -24,7 +24,7 @@
   --tabbar-height: 28px;
   --toolbar-height: 28px;
   --titlebar-height: 28px;
-  --command-height: 20px;
+  --message-height: 20px;
 
   height: 100%;
   background: var(--bar-bg);
@@ -301,47 +301,25 @@ body {
   visibility: visible;
 }
 
-/* ---- Bottom: messages and the ":" command bar (hidden by default) ---- */
+/* ---- Bottom: the message line (hidden by default) ---- */
 #bottom {
   order: 4;
   flex: none;
 }
-#prompt {
-  color: var(--accent);
-}
-#message,
-#commandbar {
-  height: var(--command-height);
+#message {
+  height: var(--message-height);
   display: flex;
   align-items: center;
   padding-inline: 8px;
   white-space: nowrap;
   overflow: hidden;
 }
-#message[hidden],
-#commandbar[hidden] {
+#message[hidden] {
   display: none;
 }
 #message[level="error"] {
   background: var(--error);
   color: #fff;
-}
-#commandline {
-  flex: 1;
-  min-width: 0;
-  margin: 0;
-  padding: 0;
-  border: none;
-  outline: none;
-  background: transparent;
-  color: var(--fg);
-  font: inherit;
-}
-#completion {
-  color: var(--muted);
-  margin-inline-start: 8px;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 /* Page fullscreen (videos): only the page. */

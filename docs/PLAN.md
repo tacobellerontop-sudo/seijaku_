@@ -18,7 +18,7 @@ Firefox's engine — but stripped back to what a browser actually needs.
 
 | Path | What it is |
 |---|---|
-| `shell/` | The browser: window, tabs, address line, command bar |
+| `shell/` | The browser: window, tabs, address line |
 | `shell/chrome/content/pages/` | Home page and settings page |
 | `shell/modules/Theme.sys.mjs` | Ink and paper themes |
 | `shell/defaults/preferences/seijaku.js` | Defaults, including the stripped services |

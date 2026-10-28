@@ -15,11 +15,10 @@
 # DRM playback (Netflix and the like) after a rename is untested.
 # Result: <Out>\seijaku\ with Seijaku.bat to start it as a portable app.
 # Task Manager then shows seijaku.exe, not firefox.exe. There is no
-# launcher any more (scripts/build/Launcher.cs is retained unused):
-# Windows cannot rename a running process — the process name is the
-# exe filename, full stop — so the engine binary itself has to carry
-# the name. Needs 7-Zip (7z) and Python 3 on PATH, both present on
-# GitHub's Windows runners.
+# launcher: Windows cannot rename a running process — the process name
+# is the exe filename, full stop — so the engine binary itself has to
+# carry the name. Needs 7-Zip (7z) and Python 3 on PATH, both present
+# on GitHub's Windows runners.
 
 param(
     [Parameter(Mandatory)] [string] $Installer,

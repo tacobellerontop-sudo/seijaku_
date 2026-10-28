@@ -12,7 +12,7 @@ const Theme = ChromeUtils.importESModule("resource://seijaku/Theme.sys.mjs");
 const PREF = "seijaku.";
 const SESSION_FILE = "seijaku-session.json";
 const MESSAGE_MS = 4000;
-const SEIJAKU_VERSION = "0.1.6";
+const SEIJAKU_VERSION = "0.1.7";
 const UPDATE_REPO = "tacobellerontop-sudo/seijaku_";
 const UPDATE_CHECK_MS = 24 * 60 * 60 * 1000;
 
@@ -60,7 +60,6 @@ class Tab {
     this.browser = null;
     this.url = "about:blank";
     this.title = "";
-    this.history = null;
     this.lastActive = Date.now();
   }
 
@@ -80,10 +79,9 @@ var Seijaku = {
   tabs: [],
   selected: null,
   closed: [],
-  history: [],
-  historyIndex: -1,
   _messageTimer: null,
   _pendingUpdate: null,
+  _stagedUpdate: null,
   _updating: false,
 
   get $tabbar() {
@@ -91,12 +89,6 @@ var Seijaku = {
   },
   get $content() {
     return document.getElementById("content");
-  },
-  get $commandbar() {
-    return document.getElementById("commandbar");
-  },
-  get $commandline() {
-    return document.getElementById("commandline");
   },
   get $addressbar() {
     return document.getElementById("addressbar");
@@ -130,8 +122,6 @@ var Seijaku = {
     document.getElementById("tab-new").addEventListener("click", () => this.newTab());
     document.getElementById("toolbar-menu").addEventListener("click", () => this.openPage("settings"));
     this.initAddressBar();
-    this.$commandline.addEventListener("input", this);
-    this.$commandline.addEventListener("blur", this);
     window.addEventListener("keydown", this, true);
     window.addEventListener("unload", this);
     Keys.install();
@@ -148,13 +138,14 @@ var Seijaku = {
   // -------------------------------------------------------------- updates
   //
   // Auto-update, the small way: once a day at most, ask GitHub for the
-  // latest release. If there is a newer one, say so in the message line
-  // and remember it; ":update" then downloads the installer, hands it
-  // to a tiny .bat that waits for this process to exit (so Inno is
-  // never fighting a running browser), installs silently, and starts
-  // Seijaku again. Nothing is downloaded or installed without the
-  // ":update" step except the one small release check. The portable
-  // build has no installer to run, so it just opens the release page.
+  // latest release. If there is a newer one, download the installer in
+  // the background and stage it; quitting the browser then hands it to
+  // a tiny .bat that waits for this process to exit (so Inno is never
+  // fighting a running browser), installs silently, and starts Seijaku
+  // again. The Settings page has an Update button that does the same
+  // thing immediately, by flipping the update.installNow pref. The
+  // portable build has no installer to run, so it just opens the
+  // release page.
 
   versionParts(version) {
     return String(version).replace(/^v/, "").split(".").map(n => parseInt(n, 10) || 0);
@@ -202,8 +193,56 @@ var Seijaku = {
     }
     let installer = (release.assets || []).find(a => a.name.startsWith("SeijakuSetup-") && a.name.endsWith(".exe"));
     this._pendingUpdate = { version: tag.replace(/^v/, ""), url: installer?.browser_download_url, page: release.html_url };
-    this.showMessage(`Seijaku ${this._pendingUpdate.version} is available — type :update to install it`);
+    if (announce) {
+      this.showMessage(`Seijaku ${this._pendingUpdate.version} is available`);
+      return this._pendingUpdate;
+    }
+    // The quiet startup check: stage the update in the background so
+    // quitting installs it, with no step the user has to remember.
+    if (this.isInstalledBuild() && this._pendingUpdate.url) {
+      try {
+        await this.downloadAndStageUpdate(this._pendingUpdate);
+        this.showMessage(`Seijaku ${this._pendingUpdate.version} downloaded — it will install when you quit`);
+      } catch (e) {
+        this.showMessage(`Seijaku ${this._pendingUpdate.version} is available — press Update in Settings to install it`);
+      }
+    } else {
+      this.showMessage(`Seijaku ${this._pendingUpdate.version} is available — press Update in Settings to install it`);
+    }
     return this._pendingUpdate;
+  },
+
+  async downloadAndStageUpdate(pending) {
+    let tmp = Services.dirsvc.get("TmpD", Ci.nsIFile);
+    let installerFile = tmp.clone();
+    installerFile.append(`SeijakuSetup-${pending.version}.exe`);
+    await this.downloadToFile(pending.url, installerFile);
+    let batFile = tmp.clone();
+    batFile.append("seijaku-update.bat");
+    await this.writeTextFile(batFile, this.updaterBat(installerFile.path));
+    this._stagedUpdate = batFile.path;
+  },
+
+  updaterBat(installerPath) {
+    return [
+      "@echo off",
+      ":wait",
+      'tasklist /FI "IMAGENAME eq seijaku.exe" 2>nul | find /I "seijaku.exe" >nul',
+      "if not errorlevel 1 timeout /t 1 /nobreak >nul & goto wait",
+      `"${installerPath}" /VERYSILENT /NORESTART /SUPPRESSMSGBOXES`,
+      'start "" "%LOCALAPPDATA%\\Programs\\Seijaku\\seijaku.exe" -app "%LOCALAPPDATA%\\Programs\\Seijaku\\seijaku\\application.ini"',
+      'del "%~f0"',
+      "",
+    ].join("\r\n");
+  },
+
+  launchUpdaterBat(batPath) {
+    let cmd = Services.dirsvc.get("WinD", Ci.nsIFile);
+    cmd.append("System32");
+    cmd.append("cmd.exe");
+    let process = Cc["@mozilla.org/process/util;1"].createInstance(Ci.nsIProcess);
+    process.init(cmd);
+    process.run(false, ["/c", batPath], 2);
   },
 
   maybeCheckForUpdates() {
@@ -255,30 +294,8 @@ var Seijaku = {
     this._updating = true;
     try {
       this.showMessage(`Downloading Seijaku ${pending.version}…`);
-      let tmp = Services.dirsvc.get("TmpD", Ci.nsIFile);
-      let installerName = `SeijakuSetup-${pending.version}.exe`;
-      let installerFile = tmp.clone();
-      installerFile.append(installerName);
-      await this.downloadToFile(pending.url, installerFile);
-      let batFile = tmp.clone();
-      batFile.append("seijaku-update.bat");
-      let bat = [
-        "@echo off",
-        ":wait",
-        'tasklist /FI "IMAGENAME eq seijaku.exe" 2>nul | find /I "seijaku.exe" >nul',
-        "if not errorlevel 1 timeout /t 1 /nobreak >nul & goto wait",
-        `"${installerFile.path}" /VERYSILENT /NORESTART /SUPPRESSMSGBOXES`,
-        'start "" "%LOCALAPPDATA%\\Programs\\Seijaku\\seijaku.exe" -app "%LOCALAPPDATA%\\Programs\\Seijaku\\seijaku\\application.ini"',
-        'del "%~f0"',
-        "",
-      ].join("\r\n");
-      await this.writeTextFile(batFile, bat);
-      let cmd = Services.dirsvc.get("WinD", Ci.nsIFile);
-      cmd.append("System32");
-      cmd.append("cmd.exe");
-      let process = Cc["@mozilla.org/process/util;1"].createInstance(Ci.nsIProcess);
-      process.init(cmd);
-      process.run(false, ["/c", batFile.path], 2);
+      await this.downloadAndStageUpdate(pending);
+      this.launchUpdaterBat(this._stagedUpdate);
       try {
         Services.startup.quit(Ci.nsIAppStartup.eAttemptQuit);
       } catch (e) {
@@ -341,6 +358,16 @@ var Seijaku = {
   observe(subject, topic, data) {
     if (topic == "nsPref:changed" && data.startsWith(PREF)) {
       this.applyTheme();
+      // The Settings page has no way to call into this window, so it
+      // asks for an update by flipping this pref instead.
+      if (data == PREF + "update.installNow") {
+        try {
+          if (Services.prefs.getBoolPref(data, false)) {
+            Services.prefs.setBoolPref(data, false);
+            this.installUpdate();
+          }
+        } catch (e) { /* installing stays available from the next start */ }
+      }
     }
   },
 
@@ -688,11 +715,7 @@ var Seijaku = {
       this.wake(tab);
     }
     this.activate(tab);
-    if (!this.$commandbar.hidden) {
-      // keep focus in the command bar
-    } else {
-      tab.browser?.focus();
-    }
+    tab.browser?.focus();
     this.updateTitle();
     this.updateNavButtons();
   },
@@ -826,126 +849,10 @@ var Seijaku = {
     document.getElementById("message").hidden = true;
   },
 
-  // -------------------------------------------------------------- command bar
-
-  openCommandLine(text = "") {
-    let input = this.$commandline;
-    this.$commandbar.hidden = false;
-    input.value = text;
-    this.historyIndex = -1;
-    this.updateCompletion();
-    input.focus();
-    input.setSelectionRange(text.length, text.length);
-  },
-
-  closeCommandLine() {
-    this.$commandbar.hidden = true;
-    this.$commandline.value = "";
-    this.selectedBrowser?.focus();
-  },
-
-  updateCompletion() {
-    let input = this.$commandline.value.trim();
-    let name = input.split(/\s+/)[0] || "";
-    let match = Object.keys(Commands).find(c => c.startsWith(name) && c != name);
-    document.getElementById("completion").textContent = match ? match.slice(name.length) : "";
-  },
-
-  onCommandLineKey(event) {
-    let input = this.$commandline;
-    switch (event.key) {
-      case "Enter": {
-        let text = input.value.trim();
-        this.closeCommandLine();
-        if (text) {
-          this.run(text);
-        }
-        break;
-      }
-      case "Escape":
-        this.closeCommandLine();
-        break;
-      case "Tab":
-        event.preventDefault();
-        let name = input.value.trim().split(/\s+/)[0] || "";
-        let match = Object.keys(Commands).find(c => c.startsWith(name) && c != name);
-        if (match) {
-          input.value = match + " ";
-          this.updateCompletion();
-        }
-        break;
-      case "ArrowUp":
-        event.preventDefault();
-        if (this.history.length) {
-          this.historyIndex = Math.min(this.historyIndex + 1, this.history.length - 1);
-          input.value = this.history[this.history.length - 1 - this.historyIndex];
-        }
-        break;
-      case "ArrowDown":
-        event.preventDefault();
-        if (this.historyIndex > 0) {
-          this.historyIndex--;
-          input.value = this.history[this.history.length - 1 - this.historyIndex];
-        } else {
-          this.historyIndex = -1;
-          input.value = "";
-        }
-        break;
-    }
-  },
-
-  run(text) {
-    let [name, ...rest] = text.trim().split(/\s+/);
-    let args = rest.join(" ");
-    let cmd = Commands[name];
-    if (!cmd) {
-      // Not a command: open it as an address or a search.
-      try {
-        this.openTab(this.urlFor(text), { afterCurrent: true });
-      } catch (e) {
-        this.showMessage(e.message, "error");
-      }
-      return;
-    }
-    this.history.push(text);
-    if (this.history.length > 100) {
-      this.history.shift();
-    }
-    cmd.run(args);
-  },
-
   // -------------------------------------------------------------- events
 
   handleEvent(event) {
     switch (event.type) {
-      case "keydown":
-        if (event.target === this.$commandline) {
-          this.onCommandLineKey(event);
-        } else if (
-          event.key == ":" &&
-          !event.ctrlKey && !event.altKey && !event.metaKey &&
-          event.target.ownerDocument === document &&
-          event.target.localName != "browser" &&
-          event.target.localName != "input"
-        ) {
-          event.preventDefault();
-          this.openCommandLine();
-        }
-        break;
-      case "input":
-        this.updateCompletion();
-        break;
-      case "blur":
-        setTimeout(() => {
-          if (
-            !this.$commandbar.hidden &&
-            document.hasFocus() &&
-            document.activeElement !== this.$commandline
-          ) {
-            this.closeCommandLine();
-          }
-        }, 0);
-        break;
       case "mousedown": {
         let tab = event.target.closest(".tab")?.tab;
         if (tab && event.button == 0) {
@@ -963,97 +870,15 @@ var Seijaku = {
       }
       case "unload":
         clearInterval(this._sleepTimer);
+        // A staged update installs now: the .bat waits for this
+        // process to be gone, installs silently, and restarts Seijaku.
+        if (this._stagedUpdate && !this._updating) {
+          try {
+            this.launchUpdaterBat(this._stagedUpdate);
+          } catch (e) { /* the staged installer just stays in Temp */ }
+        }
         break;
     }
-  },
-};
-
-/** The ":" commands. Small on purpose: this is the whole list. */
-var Commands = {
-  open: {
-    usage: "open <address or search>",
-    run(args) {
-      try {
-        let url = Seijaku.urlFor(args);
-        if (Seijaku.selectedBrowser) {
-          Seijaku.load(Seijaku.selectedBrowser, url);
-        }
-      } catch (e) {
-        Seijaku.showMessage(e.message, "error");
-      }
-    },
-  },
-  tab: {
-    usage: "tab <address or search>  (new tab)",
-    run(args) {
-      try {
-        Seijaku.openTab(Seijaku.urlFor(args), { afterCurrent: true });
-      } catch (e) {
-        Seijaku.showMessage(e.message, "error");
-      }
-    },
-  },
-  close: {
-    usage: "close  (this tab)",
-    run() {
-      Seijaku.closeTab();
-    },
-  },
-  undo: {
-    usage: "undo  (reopen the last closed tab)",
-    run() {
-      Seijaku.undoCloseTab();
-    },
-  },
-  back: {
-    run() {
-      Seijaku.selectedBrowser?.goBack();
-    },
-  },
-  forward: {
-    run() {
-      Seijaku.selectedBrowser?.goForward();
-    },
-  },
-  reload: {
-    run() {
-      Seijaku.selectedBrowser?.reload();
-    },
-  },
-  home: {
-    run() {
-      Seijaku.openTab(Seijaku.homepage());
-    },
-  },
-  settings: {
-    run() {
-      Seijaku.openPage("settings");
-    },
-  },
-  sleep: {
-    usage: "sleep  (put every other tab to sleep now)",
-    run() {
-      let n = 0;
-      for (let tab of Seijaku.tabs) {
-        if (Seijaku.sleep(tab)) {
-          n++;
-        }
-      }
-      Seijaku.showMessage(`Put ${n} tab${n == 1 ? "" : "s"} to sleep`);
-    },
-  },
-  update: {
-    usage: "update  (check for a new version, download it and install it)",
-    run() {
-      Seijaku.installUpdate();
-    },
-  },
-  help: {
-    usage: "help  (this list)",
-    run() {
-      let lines = Object.entries(Commands).map(([name, c]) => c.usage || name);
-      Seijaku.showMessage(lines.join("  ·  "));
-    },
   },
 };
 

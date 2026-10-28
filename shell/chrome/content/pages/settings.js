@@ -40,4 +40,9 @@ window.addEventListener("DOMContentLoaded", () => {
   bind("setting-search", "seijaku.searchUrl", "string");
   bind("setting-homepage", "seijaku.homepage", "string");
   bindBool("setting-update", "seijaku.update.enabled");
+  // The settings page cannot call the chrome window directly, so it
+  // asks for an update by flipping a pref the chrome window watches.
+  document.getElementById("setting-update-now").addEventListener("click", () => {
+    Services.prefs.setBoolPref("seijaku.update.installNow", true);
+  });
 });

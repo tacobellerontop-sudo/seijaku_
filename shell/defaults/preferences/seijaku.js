@@ -4,6 +4,7 @@ pref("toolkit.singletonWindowType", "seijaku:main");
 
 pref("seijaku.update.enabled", true);          // check GitHub for a new release on startup, at most once a day
 pref("seijaku.update.lastCheck", 0);           // seconds since the epoch of the last check
+pref("seijaku.update.installNow", false);      // flipped by the Settings page to ask the chrome window to update now
 pref("seijaku.theme", "ink");                  // "ink" (dark) or "paper" (light)
 pref("seijaku.homepage", "seijaku:home");      // seijaku:home, about:blank or any address
 pref("seijaku.searchUrl", "https://duckduckgo.com/?q=%s");

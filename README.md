@@ -20,10 +20,10 @@ Download SeijakuSetup-0.1.0.exe from the latest release and run it. It installs 
 ## Use it
 
 - `Ctrl+T` new tab, `Ctrl+W` close tab, `Ctrl+L` address line
-- `:` for the command line (`:open`, `:tab`, `:close`, `:undo`,
-  `:reload`, `:sleep`, `:settings`, `:help`)
 - `Ctrl+,` settings: theme (ink dark / paper light), tab sleep time,
-  search engine, home page
+  search engine, home page, updates (checks GitHub on startup, at most
+  once a day; a newer version downloads in the background and installs
+  when you quit)
 
 ## Build it
 

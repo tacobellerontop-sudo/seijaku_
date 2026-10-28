@@ -33,7 +33,12 @@
     </label>
     <label>
       <input id="setting-update" type="checkbox" />
-      Check for updates on startup (at most once a day; install with :update)
+      Check for updates on startup (at most once a day; a newer version downloads in the background and installs when you quit)
+    </label>
+    <label>
+      Updates
+      <button id="setting-update-now" type="button">Update Seijaku now</button>
+      <span class="muted">Checks GitHub, downloads the installer, and restarts Seijaku on the new version.</span>
     </label>
     <p id="saved" class="muted" hidden="hidden">Saved.</p>
   </main>

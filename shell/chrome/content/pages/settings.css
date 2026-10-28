@@ -17,11 +17,16 @@ label {
 }
 
 label input,
-label select {
+label select,
+label button {
   display: block;
-  width: 100%;
   margin-top: 6px;
   box-sizing: border-box;
+}
+
+label input:not([type="checkbox"]),
+label select {
+  width: 100%;
 }
 
 label input[type="checkbox"] {
