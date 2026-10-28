@@ -13,7 +13,7 @@ const Theme = ChromeUtils.importESModule("resource://seijaku/Theme.sys.mjs");
 const PREF = "seijaku.";
 const SESSION_FILE = "seijaku-session.json";
 const MESSAGE_MS = 4000;
-const SEIJAKU_VERSION = "0.1.9";
+const SEIJAKU_VERSION = "0.1.10";
 const UPDATE_REPO = "tacobellerontop-sudo/seijaku_";
 const UPDATE_CHECK_MS = 24 * 60 * 60 * 1000;
 

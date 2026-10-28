@@ -246,6 +246,10 @@ body {
   background: transparent;
   color: var(--muted);
   font: inherit;
+  /* Arrows render in Yu Gothic thin and uneven; Segoe UI Symbol draws
+     the ← → ↻ ⋮ set properly on Windows, falling back to the UI font
+     anywhere else. The characters themselves are unchanged. */
+  font-family: "Segoe UI Symbol", "Yu Gothic UI", "Yu Gothic", sans-serif;
   font-size: 14px;
   line-height: 1;
   width: 24px;
@@ -268,11 +272,12 @@ body {
   flex: 1;
   min-width: 0;
   border: none;
+  border-bottom: 1px solid var(--accent);
   outline: none;
   background: transparent;
   color: var(--fg);
   font: inherit;
-  padding: 0;
+  padding: 0 0 2px;
 }
 #addressbar::placeholder {
   color: var(--muted);
