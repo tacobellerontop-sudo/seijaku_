@@ -1,0 +1,59 @@
+/* Seijaku's own pages (home, settings), in the browser's colours. */
+
+:root {
+  --font: "Cascadia Mono", Consolas, "DejaVu Sans Mono", monospace;
+  --bar-bg: #14161c;
+  --fg: #e8e6df;
+  --accent: #d8442a;
+  --muted: #8a8d96;
+  --error: #e07b7b;
+  --bg: var(--bar-bg);
+  --panel: var(--bar-bg);
+  --line: #2a2d36;
+  background: var(--bg);
+  color: var(--fg);
+  font: 13px/1.5 var(--font);
+}
+
+body {
+  margin: 0;
+}
+
+a {
+  color: var(--fg);
+}
+
+input,
+select,
+button {
+  font: inherit;
+  color: var(--fg);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 0;
+  padding: 4px 6px;
+}
+input:focus,
+select:focus,
+button:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 0;
+  border-color: var(--accent);
+}
+button {
+  cursor: pointer;
+}
+button:hover {
+  border-color: var(--muted);
+}
+
+kbd {
+  font: inherit;
+  color: var(--fg);
+  border: 1px solid var(--line);
+  padding: 0 4px;
+}
+
+.muted {
+  color: var(--muted);
+}

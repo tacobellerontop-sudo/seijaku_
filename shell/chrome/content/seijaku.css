@@ -1,0 +1,324 @@
+/* Seijaku window. Ma: empty space. Kanso: one thing per row, lines
+   instead of boxes. One accent only: vermilion, for the seal, the
+   selected tab's underline, and the cursor. Colours come from the theme
+   setting (ink dark by default, paper light); seijaku.js sets them. */
+
+:root {
+  --font: "Cascadia Mono", Consolas, "DejaVu Sans Mono", monospace;
+  --font-size: 13px;
+  --bar-bg: #14161c;
+  --fg: #e8e6df;
+  --tab: #1a1d24;
+  --tab-selected: #23262f;
+  --tab-selected-fg: #ffffff;
+  --accent: #d8442a;
+  --muted: #8a8d96;
+  --error: #e07b7b;
+  --tabbar-height: 34px;
+  --toolbar-height: 40px;
+  --titlebar-height: 36px;
+  --command-height: 24px;
+
+  height: 100%;
+  background: var(--bar-bg);
+  color: var(--fg);
+  font: var(--font-size) var(--font);
+}
+
+body {
+  margin: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ---- Title bar: the seal, then the window title (or the tabs, when
+   the tab strip shares this row is not a thing here: tabs have their
+   own row, always, so this row stays quiet) ---- */
+#titlebar {
+  order: 0;
+  flex: none;
+  display: flex;
+  height: var(--titlebar-height);
+  align-items: stretch;
+  -moz-window-dragging: drag;
+  user-select: none;
+}
+:root[sizemode="fullscreen"] #titlebar {
+  display: none;
+}
+#seal {
+  flex: none;
+  display: flex;
+  align-items: center;
+  padding-inline: 12px 4px;
+  font-size: 20px;
+  color: var(--accent);
+}
+#titlebar-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  padding-inline-start: 8px;
+}
+#titlebar-title {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--muted);
+  font-size: 12px;
+}
+:root:-moz-window-inactive #titlebar-title {
+  opacity: 0.6;
+}
+#titlebar-buttons {
+  display: flex;
+  -moz-window-dragging: no-drag;
+}
+.titlebar-button {
+  appearance: none;
+  border: none;
+  border-radius: 0;
+  margin: 0;
+  padding: 0 17px;
+  background: transparent;
+  color: var(--fg);
+  font: 10px "Segoe Fluent Icons", "Segoe MDL2 Assets";
+  -moz-window-dragging: no-drag;
+}
+.titlebar-button:hover {
+  background: color-mix(in srgb, var(--fg) 15%, transparent);
+}
+#titlebar-close:hover {
+  background: #c42b1c;
+  color: #fff;
+}
+#titlebar-min {
+  -moz-default-appearance: -moz-window-button-minimize;
+}
+#titlebar-min::before {
+  content: "\e921";
+}
+#titlebar-max {
+  -moz-default-appearance: -moz-window-button-maximize;
+}
+#titlebar-max::before {
+  content: "\e922";
+}
+#titlebar-restore {
+  -moz-default-appearance: -moz-window-button-restore;
+}
+#titlebar-restore::before {
+  content: "\e923";
+}
+#titlebar-close {
+  -moz-default-appearance: -moz-window-button-close;
+}
+#titlebar-close::before {
+  content: "\e8bb";
+}
+:root[sizemode="maximized"] #titlebar-max,
+:root:not([sizemode="maximized"]) #titlebar-restore {
+  display: none;
+}
+
+/* ---- Tab strip: words, not boxes. The selected tab gets one
+   vermilion underline and nothing else. ---- */
+#tabbar {
+  order: 1;
+  display: flex;
+  flex: none;
+  height: var(--tabbar-height);
+  align-items: stretch;
+  overflow: hidden;
+  user-select: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--fg) 10%, transparent);
+}
+.tab {
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: 240px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-inline: 12px 6px;
+  white-space: nowrap;
+  cursor: default;
+  color: var(--muted);
+  border-bottom: 2px solid transparent;
+}
+.tab[selected] {
+  color: var(--tab-selected-fg);
+  border-bottom-color: var(--accent);
+}
+.tab[asleep] {
+  font-style: italic;
+}
+.tab[asleep] .tab-label {
+  opacity: 0.6;
+}
+.tab-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tab-close {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  line-height: 1;
+  padding: 2px 5px;
+  margin-inline-start: auto;
+  cursor: pointer;
+  display: none;
+  -moz-window-dragging: no-drag;
+}
+.tab[selected] .tab-close,
+.tab:hover .tab-close {
+  display: inline;
+}
+.tab-close:hover {
+  color: var(--accent);
+}
+.tab-new {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 18px;
+  line-height: 1;
+  padding: 0 12px;
+  cursor: pointer;
+  -moz-window-dragging: no-drag;
+}
+.tab-new:hover {
+  color: var(--fg);
+}
+
+/* ---- Address line: a line, not a box ---- */
+#toolbar {
+  order: 2;
+  display: flex;
+  flex: none;
+  height: var(--toolbar-height);
+  align-items: center;
+  gap: 8px;
+  padding-inline: 8px;
+  user-select: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--fg) 10%, transparent);
+}
+.nav-button {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 16px;
+  line-height: 1;
+  width: 30px;
+  height: 30px;
+  cursor: pointer;
+  -moz-window-dragging: no-drag;
+}
+.nav-button:hover:not(:disabled) {
+  color: var(--fg);
+}
+.nav-button:disabled {
+  opacity: 0.35;
+}
+#address-lock {
+  flex: none;
+  font-size: 13px;
+  color: var(--muted);
+}
+#addressbar {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+  padding: 0;
+}
+#addressbar::placeholder {
+  color: var(--muted);
+}
+#addressbar:focus {
+  /* The line under the whole toolbar is the focus mark; nothing extra. */
+  outline: none;
+}
+
+/* ---- Pages ---- */
+#content {
+  order: 3;
+  flex: 1;
+  display: grid;
+  min-height: 0;
+  background: var(--bar-bg);
+}
+#content > browser {
+  grid-area: 1 / 1;
+  min-width: 0;
+  min-height: 0;
+  visibility: hidden;
+}
+#content > browser[selected] {
+  visibility: visible;
+}
+
+/* ---- Bottom: messages and the ":" command bar (hidden by default) ---- */
+#bottom {
+  order: 4;
+  flex: none;
+}
+#prompt {
+  color: var(--accent);
+}
+#message,
+#commandbar {
+  height: var(--command-height);
+  display: flex;
+  align-items: center;
+  padding-inline: 8px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+#message[hidden],
+#commandbar[hidden] {
+  display: none;
+}
+#message[level="error"] {
+  background: var(--error);
+  color: #fff;
+}
+#commandline {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+}
+#completion {
+  color: var(--muted);
+  margin-inline-start: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Page fullscreen (videos): only the page. */
+:root[inDOMFullscreen] #titlebar,
+:root[inDOMFullscreen] #tabbar,
+:root[inDOMFullscreen] #toolbar,
+:root[inDOMFullscreen] #bottom {
+  display: none;
+}

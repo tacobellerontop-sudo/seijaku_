@@ -1,0 +1,57 @@
+<?xml version="1.0"?>
+<!-- Seijaku: the whole window. One tab strip, one address line, one page.
+     Tabs and pages are added by seijaku.js; the ":" command bar stays
+     hidden until you press ":". -->
+<!DOCTYPE html>
+<html id="seijaku-window"
+      xmlns="http://www.w3.org/1999/xhtml"
+      xmlns:xul="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"
+      windowtype="seijaku:main"
+      width="1280" height="800"
+      persist="screenX screenY width height sizemode">
+<head>
+  <meta charset="utf-8" />
+  <title>Seijaku</title>
+  <link rel="stylesheet" href="chrome://global/skin/global.css" />
+  <link rel="stylesheet" href="chrome://seijaku/content/seijaku.css" />
+  <script src="chrome://global/content/customElements.js"></script>
+  <script src="chrome://seijaku/content/seijaku.js"></script>
+</head>
+<body>
+  <div id="titlebar">
+    <span id="seal" title="Seijaku">&#x7c21;</span>
+    <div id="titlebar-content">
+      <span id="titlebar-title">Seijaku</span>
+    </div>
+    <div id="titlebar-buttons">
+      <button id="titlebar-min" class="titlebar-button" title="Minimize" tabindex="-1"></button>
+      <button id="titlebar-max" class="titlebar-button" title="Maximize" tabindex="-1"></button>
+      <button id="titlebar-restore" class="titlebar-button" title="Restore" tabindex="-1"></button>
+      <button id="titlebar-close" class="titlebar-button" title="Close" tabindex="-1"></button>
+    </div>
+  </div>
+  <div id="tabbar" role="tablist">
+    <button id="tab-new" class="tab-new" title="New tab (Ctrl+T)" tabindex="-1">+</button>
+  </div>
+  <div id="toolbar">
+    <span id="nav-buttons">
+      <button id="nav-back" class="nav-button" title="Back (Alt+Left)" tabindex="-1" disabled="disabled">&#x2190;</button>
+      <button id="nav-forward" class="nav-button" title="Forward (Alt+Right)" tabindex="-1" disabled="disabled">&#x2192;</button>
+      <button id="nav-reload" class="nav-button" title="Reload (Ctrl+R)" tabindex="-1">&#x21bb;</button>
+    </span>
+    <span id="address-lock" title="Connection security">&#x2315;</span>
+    <input id="addressbar" type="text" spellcheck="false" autocomplete="off"
+           placeholder="Search or type an address" />
+    <button id="toolbar-menu" class="nav-button" title="Settings (Ctrl+,)" tabindex="-1">&#x22ee;</button>
+  </div>
+  <div id="content"></div>
+  <div id="bottom">
+    <div id="message" hidden="hidden"></div>
+    <div id="commandbar" hidden="hidden">
+      <span id="prompt">:</span>
+      <input id="commandline" type="text" spellcheck="false" autocomplete="off" />
+      <span id="completion"></span>
+    </div>
+  </div>
+</body>
+</html>

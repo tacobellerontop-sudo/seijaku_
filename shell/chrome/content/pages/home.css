@@ -1,0 +1,91 @@
+/* Seijaku home page: your sketch, kept. Dark, centred, almost empty.
+   The only decoration is a faint vermilion horizon low on the right. */
+
+body {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(55% 40% at 88% 100%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 70%),
+    linear-gradient(180deg, var(--bg), color-mix(in srgb, var(--bg) 80%, black));
+}
+
+main {
+  width: min(640px, 90vw);
+  padding-block: 40px;
+  text-align: center;
+}
+
+#brand {
+  font-size: 44px;
+  font-weight: normal;
+  letter-spacing: 2px;
+  margin: 0 0 28px;
+}
+#seal {
+  color: var(--accent);
+  font-size: 32px;
+}
+#cursor {
+  color: var(--accent);
+  animation: blink 1s steps(1) infinite;
+}
+@keyframes blink {
+  50% {
+    visibility: hidden;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  #cursor {
+    animation: none;
+  }
+}
+
+/* No box, just an underline, centred. */
+#search-form {
+  width: min(520px, 100%);
+  margin: 0 auto;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+}
+#search-form:focus-within {
+  border-bottom-color: var(--accent);
+  border-bottom-width: 2px;
+}
+#search {
+  width: 100%;
+  border: none;
+  outline: none;
+  background: transparent;
+  padding: 10px 2px;
+  font-size: 16px;
+  text-align: center;
+}
+#search::placeholder {
+  color: var(--muted);
+}
+
+#horizon {
+  width: min(520px, 100%);
+  height: 1px;
+  margin: 28px auto 0;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--accent) 55%, transparent), transparent);
+}
+
+#sleeping {
+  margin: 12px 0 0;
+  font-size: 12px;
+}
+#sleeping[hidden] {
+  display: none;
+}
+
+footer {
+  margin-top: 40px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px 18px;
+  font-size: 12px;
+}

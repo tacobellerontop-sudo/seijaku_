@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Home</title>
+  <link rel="stylesheet" href="chrome://seijaku/content/pages/pages.css" />
+  <link rel="stylesheet" href="chrome://seijaku/content/pages/home.css" />
+  <script src="chrome://seijaku/content/pages/theme.js"></script>
+  <script src="chrome://seijaku/content/pages/home.js"></script>
+</head>
+<body>
+  <main>
+    <h1 id="brand"><span id="seal">簡</span> seijaku<span id="cursor">_</span></h1>
+    <form id="search-form" autocomplete="off">
+      <input id="search" type="text" spellcheck="false"
+             placeholder="Search the web&#8230;" autofocus="autofocus" />
+    </form>
+    <div id="horizon" aria-hidden="true"></div>
+    <p id="sleeping" class="muted" hidden="hidden"></p>
+    <footer class="muted">
+      <span><kbd>:</kbd> commands</span>
+      <span><kbd>Ctrl+T</kbd> new tab</span>
+      <span><kbd>Ctrl+W</kbd> close tab</span>
+      <span><kbd>Ctrl+L</kbd> address</span>
+      <span><kbd>Ctrl+,</kbd> <a id="settings-link" href="#">settings</a></span>
+    </footer>
+  </main>
+</body>
+</html>
