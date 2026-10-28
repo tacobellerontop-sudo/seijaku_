@@ -84,6 +84,13 @@ Copy-Item -Recurse (Join-Path $repo 'shell') (Join-Path $app 'seijaku')
 $windowIconDir = Join-Path $app 'seijaku\chrome\icons\default'
 New-Item -ItemType Directory -Force $windowIconDir | Out-Null
 Copy-Item $icon (Join-Path $windowIconDir 'seijaku-window.ico')
+# Same icon under the content package too, and named by the <html>
+# element's icon attribute in seijaku.xhtml: Gecko's window-icon
+# lookup base is not documented precisely enough to bet on one path,
+# and the file is 7 KB, so cover both.
+$contentIconDir = Join-Path $app 'seijaku\chrome\content\icons\default'
+New-Item -ItemType Directory -Force $contentIconDir | Out-Null
+Copy-Item $icon (Join-Path $contentIconDir 'seijaku-window.ico')
 
 # Portable: the profile lives next to the app, separate from any Firefox.
 # The engine binary itself is seijaku.exe now, so the start script passes

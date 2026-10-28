@@ -96,9 +96,12 @@ Root: HKCU; Subkey: "Software\Classes\Applications\seijaku.exe\shell\open\comman
 [Icons]
 ; IconFilename matters now: seijaku.exe is the renamed Firefox binary,
 ; so its embedded icon is still Firefox's. Point the shortcuts at the
-; seal icon instead.
-Name: "{autoprograms}\Seijaku"; Filename: "{app}\seijaku.exe"; IconFilename: "{app}\seijaku.ico"
-Name: "{autodesktop}\Seijaku"; Filename: "{app}\seijaku.exe"; IconFilename: "{app}\seijaku.ico"; Tasks: desktopicon
+; seal icon instead. Parameters matters just as much: without -app the
+; shortcut starts the bare engine, which has no front end left to show
+; — that is why 0.1.2 could not be reopened after closing it (the
+; post-install [Run] entry had -app, so the first launch worked).
+Name: "{autoprograms}\Seijaku"; Filename: "{app}\seijaku.exe"; Parameters: "-app ""{app}\seijaku\application.ini"""; IconFilename: "{app}\seijaku.ico"
+Name: "{autodesktop}\Seijaku"; Filename: "{app}\seijaku.exe"; Parameters: "-app ""{app}\seijaku\application.ini"""; IconFilename: "{app}\seijaku.ico"; Tasks: desktopicon
 
 [Run]
 ; The engine binary itself is seijaku.exe, so it needs -app to find the
