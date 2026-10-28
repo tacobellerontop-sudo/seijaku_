@@ -15,7 +15,7 @@ the one real trade-off in it (Safe Browsing is off).
 
 ## Install it
 
-Download SeijakuSetup-0.1.0.exe from the latest release and run it. It installs for your Windows account only, no admin rights, no Firefox needed first, nothing else to install. Or unzip the portable zip on the same page and run Seijaku.bat. See docs/INSTALLER.md for what the installer does and where your profile lives.
+Download SeijakuSetup from the latest release and run it. It installs for your Windows account only, no admin rights, no Firefox needed first, nothing else to install. Or unzip the portable zip on the same page and run Seijaku.bat. See docs/INSTALLER.md for what the installer does and where your profile lives.
 
 ## Use it
 
@@ -27,9 +27,11 @@ Download SeijakuSetup-0.1.0.exe from the latest release and run it. It installs 
 
 ## Build it
 
-This is a v0.1 scaffold, not a release yet. See
-[docs/PLAN.md](docs/PLAN.md) for how to run it from a Firefox install
-on Windows, and what still needs proving on that first run.
+Releases are built by the Release workflow in GitHub Actions: it
+downloads Firefox, wraps the shell around the engine, and publishes
+the installer and the portable zip. See [docs/PLAN.md](docs/PLAN.md)
+for the design, and [docs/INSTALLER.md](docs/INSTALLER.md) for what
+the installer does.
 
 ## Licence
 

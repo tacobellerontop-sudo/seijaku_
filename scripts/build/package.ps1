@@ -39,8 +39,9 @@ if (-not (Test-Path $engine)) { throw "no engine folder in $Installer" }
 Move-Item $engine $app
 
 # Firefox's front end and the background helpers Seijaku doesn't use.
-# Dropping these is part of the lightness: no updater, no maintenance
-# service, no crash reporter, no background agent, no Firefox front end.
+# Dropping these is part of the lightness: no Mozilla updater (Seijaku
+# updates itself from GitHub instead), no maintenance service, no
+# crash reporter, no background agent, no Firefox front end.
 $drop = @(
     'browser', 'uninstall', 'distribution',
     'default-browser-agent.exe', 'maintenanceservice.exe', 'maintenanceservice_installer.exe',

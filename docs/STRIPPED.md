@@ -35,7 +35,7 @@ re-apply on every engine update.
   Google and consulted on every navigation. This is a real trade-off,
   stated plainly: Seijaku trusts the site you typed, and shows the lock
   state, instead of phoning a list. If you want it back, turn those
-  prefs on in `about:config` (see docs/PLAN.md).
+  prefs on in `about:config`.
 - Captive-portal and connectivity checks
   (`network.captive-portal-service.*`, `network.connectivity-service.*`):
   background probes.

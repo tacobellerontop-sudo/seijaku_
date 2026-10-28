@@ -6,8 +6,6 @@ export const THEMES = {
   ink: {
     barBg: "#171310",
     fg: "#ece4d3",
-    tab: "#1d1812",
-    tabSelected: "#241e17",
     tabSelectedFg: "#fff8ea",
     accent: "#d8442a",
     muted: "#9a9082",
@@ -17,8 +15,6 @@ export const THEMES = {
   paper: {
     barBg: "#f4f1e8",
     fg: "#1c1a17",
-    tab: "#ece8db",
-    tabSelected: "#ffffff",
     tabSelectedFg: "#1c1a17",
     accent: "#c23a22",
     muted: "#7a766c",
@@ -31,8 +27,6 @@ export function applyColors(element, theme = "ink") {
   let t = THEMES[theme] ?? THEMES.ink;
   element.style.setProperty("--bar-bg", t.barBg);
   element.style.setProperty("--fg", t.fg);
-  element.style.setProperty("--tab", t.tab);
-  element.style.setProperty("--tab-selected", t.tabSelected);
   element.style.setProperty("--tab-selected-fg", t.tabSelectedFg);
   element.style.setProperty("--accent", t.accent);
   element.style.setProperty("--muted", t.muted);

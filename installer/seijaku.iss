@@ -1,6 +1,6 @@
 ; Seijaku's Windows installer (Inno Setup 6).
 ;
-;   iscc /DAppVersion=0.1.0 /DAppDir=..\out\seijaku /DOutDir=..\release installer\seijaku.iss
+;   iscc /DAppVersion=<version> /DAppDir=..\out\seijaku /DOutDir=..\release installer\seijaku.iss
 ;
 ; Installs the packaged app (scripts/build/package.ps1) for the current
 ; user only, into %LOCALAPPDATA%\Programs\Seijaku. No admin rights, no

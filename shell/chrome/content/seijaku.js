@@ -1,6 +1,7 @@
 /* Seijaku: a lean browser shell on Gecko. Tabs, an address line, a home
-   page, settings, and tab sleeping. Nothing else on purpose: no mods,
-   no extensions host, no accounts, no services. See docs/PLAN.md. */
+   page, settings, tab sleeping, and auto-update. Nothing else on
+   purpose: no mods, no extensions host, no accounts, no services, no
+   command bar. See docs/PLAN.md. */
 
 "use strict";
 
@@ -12,7 +13,7 @@ const Theme = ChromeUtils.importESModule("resource://seijaku/Theme.sys.mjs");
 const PREF = "seijaku.";
 const SESSION_FILE = "seijaku-session.json";
 const MESSAGE_MS = 4000;
-const SEIJAKU_VERSION = "0.1.7";
+const SEIJAKU_VERSION = "0.1.8";
 const UPDATE_REPO = "tacobellerontop-sudo/seijaku_";
 const UPDATE_CHECK_MS = 24 * 60 * 60 * 1000;
 
