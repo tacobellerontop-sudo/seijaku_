@@ -5,9 +5,9 @@
 ; Installs the packaged app (scripts/build/package.ps1) for the current
 ; user only, into %LOCALAPPDATA%\Programs\Seijaku. No admin rights, no
 ; Firefox, and nothing else to install first: the engine is inside the
-; package, and the launcher needs only .NET Framework, which Windows
-; 10 and 11 already have. The profile lives in %APPDATA%\Seijaku, so
-; the install folder stays read-only and updates keep your tabs.
+; package, renamed to seijaku.exe, so it needs nothing else at all.
+; The profile lives in %APPDATA%\Seijaku, so the install folder stays
+; read-only and updates keep your tabs.
 ;
 ; This runs in the Release workflow, not on your computer.
 
@@ -39,7 +39,7 @@ MinVersion=10.0
 OutputDir={#OutDir}
 OutputBaseFilename=SeijakuSetup-{#AppVersion}
 SetupIconFile={#AppDir}\seijaku.ico
-UninstallDisplayIcon={app}\seijaku.exe
+UninstallDisplayIcon={app}\seijaku.ico
 UninstallDisplayName=Seijaku
 WizardStyle=modern
 Compression=lzma2/max
@@ -94,11 +94,16 @@ Root: HKCU; Subkey: "Software\Classes\Applications\seijaku.exe"; ValueType: stri
 Root: HKCU; Subkey: "Software\Classes\Applications\seijaku.exe\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\seijaku.exe"" ""%1"""
 
 [Icons]
-Name: "{autoprograms}\Seijaku"; Filename: "{app}\seijaku.exe"
-Name: "{autodesktop}\Seijaku"; Filename: "{app}\seijaku.exe"; Tasks: desktopicon
+; IconFilename matters now: seijaku.exe is the renamed Firefox binary,
+; so its embedded icon is still Firefox's. Point the shortcuts at the
+; seal icon instead.
+Name: "{autoprograms}\Seijaku"; Filename: "{app}\seijaku.exe"; IconFilename: "{app}\seijaku.ico"
+Name: "{autodesktop}\Seijaku"; Filename: "{app}\seijaku.exe"; IconFilename: "{app}\seijaku.ico"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\seijaku.exe"; Description: "Start Seijaku"; Flags: nowait postinstall skipifsilent
+; The engine binary itself is seijaku.exe, so it needs -app to find the
+; shell; without it there is no Firefox front end left to fall back to.
+Filename: "{app}\seijaku.exe"; Parameters: "-app ""{app}\seijaku\application.ini"""; Description: "Start Seijaku"; Flags: nowait postinstall skipifsilent
 
 [Code]
 function IsSeijakuFolder: Boolean;

@@ -1,3 +1,6 @@
+// NOTE (0.1.2): this launcher is no longer built. package.ps1 renames
+// the engine binary itself to seijaku.exe instead, so Task Manager
+// shows Seijaku and no launcher is needed. Kept for reference only.
 // seijaku.exe: starts Mozilla's firefox.exe (kept exactly as Mozilla
 // ships it, so signed-engine sites still work) with Seijaku's shell.
 // Arguments are passed on, so the portable start script can add -profile.

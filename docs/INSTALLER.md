@@ -4,8 +4,8 @@
 
 - Windows 10 or 11, 64-bit.
 - That's it. No Firefox first, no admin rights, no extra downloads,
-  no tools. The engine is inside the installer, and the launcher needs
-  only .NET Framework, which Windows 10 and 11 already have.
+  no tools. The engine is inside the installer, renamed to
+  `seijaku.exe`, so Task Manager shows Seijaku, not Firefox.
 
 ## What the installer does
 
@@ -38,9 +38,13 @@ runs on GitHub's Windows runner:
 
 1. Downloads the latest Firefox installer from Mozilla.
 2. Runs `scripts/build/package.ps1`: extracts the engine, drops
-   Firefox's front end and background helpers, keeps `firefox.exe`
-   exactly as Mozilla signed it, builds `seijaku.exe` (the launcher)
-   and draws the seal icon at build time.
+   Firefox's front end and background helpers, renames `firefox.exe`
+   to `seijaku.exe` (Gecko starts its children from its own path, so
+   the name doesn't matter to it), and draws the seal icon at build
+   time. Renaming changes no bytes, so Mozilla's signature stays
+   valid — but Breached keeps an unrenamed `firefox.exe` for sites
+   that only play video in Google-certified browsers, so DRM playback
+   after a rename is untested.
 3. Builds the installer with Inno Setup 6.
 4. Installs it silently to check the files land, then uninstalls it.
 5. Publishes `SeijakuSetup-<version>.exe` and the portable zip as a

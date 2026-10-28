@@ -6,12 +6,20 @@
 # downloads the Firefox installer, extracts the engine, and builds this.
 # It takes the engine (xul.dll and the Gecko runtime files) out of the
 # official Firefox installer, drops Firefox's own front end (browser\) and
-# the background helpers Seijaku doesn't use, keeps firefox.exe exactly as
-# Mozilla signed it, and adds seijaku.exe (a small launcher, see
-# Launcher.cs) plus the Seijaku shell from shell\.
+# the background helpers Seijaku doesn't use, renames firefox.exe to
+# seijaku.exe (Breached's method: Gecko starts its child processes from
+# its own path, so the name doesn't matter to it), and adds the Seijaku
+# shell from shell\. Renaming changes no bytes, so Mozilla's signature
+# on the binary stays valid — but Breached keeps an unrenamed firefox.exe
+# for sites that only play video in Google-certified browsers, so
+# DRM playback (Netflix and the like) after a rename is untested.
 # Result: <Out>\seijaku\ with Seijaku.bat to start it as a portable app.
-# Needs 7-Zip (7z) and Python 3 on PATH, both present on GitHub's
-# Windows runners.
+# Task Manager then shows seijaku.exe, not firefox.exe. There is no
+# launcher any more (scripts/build/Launcher.cs is retained unused):
+# Windows cannot rename a running process — the process name is the
+# exe filename, full stop — so the engine binary itself has to carry
+# the name. Needs 7-Zip (7z) and Python 3 on PATH, both present on
+# GitHub's Windows runners.
 
 param(
     [Parameter(Mandatory)] [string] $Installer,
@@ -58,14 +66,11 @@ if (-not (Test-Path $icon)) {
 }
 if (-not (Test-Path $icon)) { throw 'the seal icon could not be drawn (needs Pillow and a CJK font)' }
 
-# seijaku.exe, the launcher: it starts firefox.exe with Seijaku's shell.
-$csc = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
-if (-not (Test-Path $csc)) { throw "csc.exe not found (needs .NET Framework, built into Windows)" }
-$launcherArgs = @('/nologo', '/target:winexe', "/out:$(Join-Path $app 'seijaku.exe')")
-if ($icon) { $launcherArgs += "/win32icon:$icon" }
-$launcherArgs += (Join-Path $repo 'scripts\build\Launcher.cs')
-& $csc $launcherArgs
-if ($LASTEXITCODE) { throw 'building the launcher failed' }
+# The engine's program is seijaku.exe. This is what makes Task Manager,
+# the taskbar grouping and crash reports say Seijaku instead of Firefox.
+# Gecko starts its child processes from its own path, so they are
+# seijaku.exe too.
+Rename-Item (Join-Path $app 'firefox.exe') 'seijaku.exe'
 
 # The shell.
 Copy-Item -Recurse (Join-Path $repo 'shell') (Join-Path $app 'seijaku')
@@ -73,16 +78,17 @@ Copy-Item -Recurse (Join-Path $repo 'shell') (Join-Path $app 'seijaku')
 # The window icon, Breached's method: Gecko picks up a window's icon
 # from chrome/icons/default/<window-id>.ico, where <window-id> is the id
 # of the <html> element in seijaku.xhtml ("seijaku-window"). That icon
-# is what Windows shows on the taskbar and in Alt+Tab — the launcher
-# exe's icon alone never reaches the browser window, because the window
-# belongs to firefox.exe. The .ico is drawn here at build time (same
-# seal as the installer icon), so the repo stays text-only.
+# is what Windows shows on the taskbar and in Alt+Tab. The .ico is drawn
+# here at build time (same seal as the installer icon), so the repo
+# stays text-only.
 $windowIconDir = Join-Path $app 'seijaku\chrome\icons\default'
 New-Item -ItemType Directory -Force $windowIconDir | Out-Null
 Copy-Item $icon (Join-Path $windowIconDir 'seijaku-window.ico')
 
 # Portable: the profile lives next to the app, separate from any Firefox.
-Set-Content (Join-Path $app 'Seijaku.bat') '@start "" "%~dp0seijaku.exe" -profile "%~dp0profile" -no-remote %*' -Encoding ascii
+# The engine binary itself is seijaku.exe now, so the start script passes
+# -app directly instead of going through a launcher.
+Set-Content (Join-Path $app 'Seijaku.bat') '@start "" "%~dp0seijaku.exe" -app "%~dp0seijaku\application.ini" -profile "%~dp0profile" -no-remote %*' -Encoding ascii
 New-Item -ItemType Directory -Force (Join-Path $app 'profile') | Out-Null
 
 Remove-Item -Recurse -Force $extract
