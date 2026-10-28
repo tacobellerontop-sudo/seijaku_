@@ -17,6 +17,7 @@
   --tab-selected-fg: #fff8ea;
   --accent: #d8442a;
   --muted: #9a9082;
+  --line: #2e2620;
   --error: #e07b7b;
   --tabbar-height: 34px;
   --toolbar-height: 36px;
@@ -159,7 +160,7 @@ body {
   align-items: stretch;
   overflow: hidden;
   user-select: none;
-  border-bottom: 1px solid color-mix(in srgb, var(--fg) 10%, transparent);
+  border-bottom: 1px solid var(--line);
 }
 .tab {
   flex: 1 1 0;
@@ -234,7 +235,7 @@ body {
   gap: 8px;
   padding-inline: 8px;
   user-select: none;
-  border-bottom: 1px solid color-mix(in srgb, var(--fg) 10%, transparent);
+  border-bottom: 1px solid var(--line);
 }
 .nav-button {
   appearance: none;
@@ -273,6 +274,8 @@ body {
 }
 #addressbar::placeholder {
   color: var(--muted);
+  font-family: var(--serif);
+  font-style: italic;
 }
 #addressbar:focus {
   /* The line under the whole toolbar is the focus mark; nothing extra. */

@@ -11,6 +11,7 @@ export const THEMES = {
     tabSelectedFg: "#fff8ea",
     accent: "#d8442a",
     muted: "#9a9082",
+    line: "#2e2620",
     error: "#e07b7b",
   },
   paper: {
@@ -21,6 +22,7 @@ export const THEMES = {
     tabSelectedFg: "#1c1a17",
     accent: "#c23a22",
     muted: "#7a766c",
+    line: "#d8d0bd",
     error: "#b3261e",
   },
 };
@@ -34,6 +36,7 @@ export function applyColors(element, theme = "ink") {
   element.style.setProperty("--tab-selected-fg", t.tabSelectedFg);
   element.style.setProperty("--accent", t.accent);
   element.style.setProperty("--muted", t.muted);
+  element.style.setProperty("--line", t.line);
   element.style.setProperty("--error", t.error);
   element.style.setProperty("color-scheme", theme == "paper" ? "light" : "dark");
 }

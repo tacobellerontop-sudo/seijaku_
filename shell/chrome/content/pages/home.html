@@ -9,10 +9,32 @@
   <script src="chrome://seijaku/content/pages/home.js"></script>
 </head>
 <body>
+  <!-- Ryoku language, drawn, not shaded: a faint dot field over the
+       whole page, and on the right a dot-art sun inside a thin abstract
+       circle, with plus marks. No gradients anywhere. -->
+  <svg id="field" aria-hidden="true">
+    <defs>
+      <pattern id="field-dots" width="26" height="26" patternUnits="userSpaceOnUse">
+        <circle cx="2" cy="2" r="1" style="fill: var(--fg)" />
+      </pattern>
+    </defs>
+    <rect width="100%" height="100%" fill="url(#field-dots)" />
+  </svg>
+  <svg id="art" aria-hidden="true" viewBox="0 0 600 600">
+    <defs>
+      <pattern id="sun-dots" width="13" height="13" patternUnits="userSpaceOnUse">
+        <circle cx="2.5" cy="2.5" r="1.8" style="fill: var(--accent)" />
+      </pattern>
+    </defs>
+    <circle cx="300" cy="300" r="285" fill="none" style="stroke: var(--line)" stroke-width="1" />
+    <circle cx="300" cy="300" r="150" fill="url(#sun-dots)" opacity="0.55" />
+    <text x="560" y="40" style="fill: var(--muted)" font-size="28">+</text>
+    <text x="30" y="580" style="fill: var(--muted)" font-size="28">+</text>
+  </svg>
   <div id="vertical" aria-hidden="true">静寂</div>
   <main>
     <h1 id="brand"><span id="seal">簡</span> seijaku<span id="cursor">_</span></h1>
-    <p id="meaning">静寂 · silence, stillness</p>
+    <p id="meaning">静寂 · for the sake of silence</p>
     <form id="search-form" autocomplete="off">
       <input id="search" type="text" spellcheck="false"
              placeholder="Search the web&#8230;" autofocus="autofocus" />

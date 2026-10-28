@@ -5,6 +5,7 @@ main {
 }
 
 h1 {
+  font-family: "Yu Mincho", "MS Mincho", serif;
   font-size: 28px;
   font-weight: normal;
   margin: 0 0 8px;

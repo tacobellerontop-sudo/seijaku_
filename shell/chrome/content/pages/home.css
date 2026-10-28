@@ -1,30 +1,57 @@
-/* Seijaku home page: your sketch, kept. Dark, centred, almost empty.
-   The decoration is Japanese, not generic-dark: the name's own kanji,
-   静寂 (seijaku, silence), written vertically and large down the right
-   side, Ryoku-style, plus a faint vermilion horizon low on the right. */
+/* Seijaku home page, in Ryoku's language: flat black, abstract thin
+   lines, dot art, and formal type matched with casual labels. No
+   gradients, no glow, no shaded washes — the feeling comes from the
+   dots and the lines, the way Ryoku's dithered statue and thin circle
+   do it. The centred search from your sketch stays where it was. */
 
 body {
   min-height: 100vh;
   display: grid;
   place-items: center;
-  background:
-    radial-gradient(55% 40% at 88% 100%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 70%),
-    linear-gradient(180deg, var(--bg), color-mix(in srgb, var(--bg) 80%, black));
+  background: var(--bg);
+  overflow: hidden;
 }
 
+/* Faint dot field over the whole page. */
+#field {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0.12;
+  pointer-events: none;
+}
+
+/* Dot-art sun in a thin abstract circle, half off the right edge. */
+#art {
+  position: fixed;
+  right: -140px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: min(580px, 68vw);
+  height: auto;
+  pointer-events: none;
+}
+
+/* The name's kanji, vertical, on the left — present, not a ghost. */
 #vertical {
   position: fixed;
-  right: 8vw;
+  left: 7vw;
   top: 50%;
   transform: translateY(-50%);
   writing-mode: vertical-rl;
   font-family: "Yu Mincho", "MS Mincho", serif;
-  font-size: clamp(72px, 14vh, 140px);
+  font-size: clamp(64px, 12vh, 120px);
   letter-spacing: 0.15em;
-  color: var(--fg);
-  opacity: 0.08;
+  color: var(--muted);
+  opacity: 0.45;
   user-select: none;
   pointer-events: none;
+}
+@media (max-width: 900px) {
+  #art {
+    display: none;
+  }
 }
 @media (max-width: 700px) {
   #vertical {
@@ -33,28 +60,24 @@ body {
 }
 
 main {
+  position: relative;
+  z-index: 1;
   width: min(640px, 90vw);
   padding-block: 40px;
   text-align: center;
 }
 
+/* Formal serif for the wordmark, like Ryoku's big serif title. */
 #brand {
-  font-size: 44px;
+  font-family: "Yu Mincho", "MS Mincho", serif;
+  font-size: 56px;
   font-weight: normal;
-  letter-spacing: 2px;
+  letter-spacing: 1px;
   margin: 0 0 8px;
 }
 #seal {
   color: var(--accent);
-  font-family: "Yu Mincho", "MS Mincho", serif;
-  font-size: 32px;
-}
-#meaning {
-  margin: 0 0 28px;
-  font-family: "Yu Mincho", "MS Mincho", serif;
-  font-size: 15px;
-  letter-spacing: 0.2em;
-  color: var(--muted);
+  font-size: 40px;
 }
 #cursor {
   color: var(--accent);
@@ -69,6 +92,17 @@ main {
   #cursor {
     animation: none;
   }
+}
+
+/* Casual gloss under the wordmark: serif italic, Ryoku's
+   "for the sake of power and beauty" voice. */
+#meaning {
+  margin: 0 0 28px;
+  font-family: "Yu Mincho", "MS Mincho", serif;
+  font-style: italic;
+  font-size: 16px;
+  letter-spacing: 0.08em;
+  color: var(--muted);
 }
 
 /* No box, just an underline, centred. */
@@ -94,13 +128,16 @@ main {
 }
 #search::placeholder {
   color: var(--muted);
+  font-family: "Yu Mincho", "MS Mincho", serif;
+  font-style: italic;
 }
 
+/* One solid hairline, not a fading gradient. */
 #horizon {
   width: min(520px, 100%);
   height: 1px;
   margin: 28px auto 0;
-  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--accent) 55%, transparent), transparent);
+  background: var(--line);
 }
 
 #sleeping {
@@ -111,11 +148,17 @@ main {
   display: none;
 }
 
+/* Casual labels: tiny, uppercase, tracked, like Ryoku's nav. */
 footer {
   margin-top: 40px;
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
   gap: 6px 18px;
-  font-size: 12px;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+footer kbd {
+  letter-spacing: 0;
 }
