@@ -9,7 +9,7 @@
 :root {
   --font: "Yu Gothic UI", "Yu Gothic", "Meiryo", sans-serif;
   --serif: "Yu Mincho", "MS Mincho", serif;
-  --font-size: 13px;
+  --font-size: 12px;
   --bar-bg: #171310;
   --fg: #ece4d3;
   --tab: #1d1812;
@@ -19,10 +19,12 @@
   --muted: #9a9082;
   --line: #2e2620;
   --error: #e07b7b;
-  --tabbar-height: 34px;
-  --toolbar-height: 36px;
-  --titlebar-height: 38px;
-  --command-height: 24px;
+  /* Compact chrome: titlebar/tab row + address line = 56px total,
+     down from 74px, so more of the window is page. */
+  --tabbar-height: 28px;
+  --toolbar-height: 28px;
+  --titlebar-height: 28px;
+  --command-height: 20px;
 
   height: 100%;
   background: var(--bar-bg);
@@ -57,9 +59,9 @@ body {
   flex: none;
   display: flex;
   align-items: center;
-  padding-inline: 12px 4px;
+  padding-inline: 8px 2px;
   font-family: var(--serif);
-  font-size: 22px;
+  font-size: 17px;
   color: var(--accent);
 }
 #titlebar-content {
@@ -88,7 +90,7 @@ body {
   border: none;
   border-radius: 0;
   margin: 0;
-  padding: 0 17px;
+  padding: 0 12px;
   background: transparent;
   color: var(--fg);
   font: 10px "Segoe Fluent Icons", "Segoe MDL2 Assets";
@@ -169,7 +171,7 @@ body {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding-inline: 12px 6px;
+  padding-inline: 8px 4px;
   white-space: nowrap;
   cursor: default;
   color: var(--muted);
@@ -215,9 +217,9 @@ body {
   background: transparent;
   color: var(--muted);
   font: inherit;
-  font-size: 18px;
+  font-size: 15px;
   line-height: 1;
-  padding: 0 12px;
+  padding: 0 8px;
   cursor: pointer;
   -moz-window-dragging: no-drag;
 }
@@ -232,8 +234,8 @@ body {
   flex: none;
   height: var(--toolbar-height);
   align-items: center;
-  gap: 8px;
-  padding-inline: 8px;
+  gap: 6px;
+  padding-inline: 6px;
   user-select: none;
   border-bottom: 1px solid var(--line);
 }
@@ -243,10 +245,10 @@ body {
   background: transparent;
   color: var(--muted);
   font: inherit;
-  font-size: 16px;
+  font-size: 14px;
   line-height: 1;
-  width: 30px;
-  height: 30px;
+  width: 24px;
+  height: 24px;
   cursor: pointer;
   -moz-window-dragging: no-drag;
 }
@@ -269,7 +271,6 @@ body {
   background: transparent;
   color: var(--fg);
   font: inherit;
-  font-size: 13px;
   padding: 0;
 }
 #addressbar::placeholder {

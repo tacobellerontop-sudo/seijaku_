@@ -12,7 +12,7 @@ const Theme = ChromeUtils.importESModule("resource://seijaku/Theme.sys.mjs");
 const PREF = "seijaku.";
 const SESSION_FILE = "seijaku-session.json";
 const MESSAGE_MS = 4000;
-const SEIJAKU_VERSION = "0.1.4";
+const SEIJAKU_VERSION = "0.1.5";
 
 const PAGES = {
   "seijaku:home": "chrome://seijaku/content/pages/home.html",
