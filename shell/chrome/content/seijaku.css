@@ -163,7 +163,10 @@ body {
   border-bottom: 1px solid var(--line);
 }
 .tab {
-  flex: 1 1 0;
+  /* Tabs fit their names: no growing to fill the strip. They shrink
+     (and truncate with an ellipsis at 240px) only when the strip runs
+     out of room, so the + button sits right after the last tab. */
+  flex: 0 1 auto;
   min-width: 0;
   max-width: 240px;
   display: flex;
