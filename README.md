@@ -13,6 +13,10 @@ no Pocket, no sponsored content, no accounts, no sync, no crash
 uploads. See [docs/STRIPPED.md](docs/STRIPPED.md) for the full list and
 the one real trade-off in it (Safe Browsing is off).
 
+## Install it
+
+Download SeijakuSetup-0.1.0.exe from the latest release and run it. It installs for your Windows account only, no admin rights, no Firefox needed first, nothing else to install. Or unzip the portable zip on the same page and run Seijaku.bat. See docs/INSTALLER.md for what the installer does and where your profile lives.
+
 ## Use it
 
 - `Ctrl+T` new tab, `Ctrl+W` close tab, `Ctrl+L` address line

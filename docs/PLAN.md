@@ -31,22 +31,25 @@ Extensions, accounts, sync, mods, passkeys, DRM handling, pinned
 sites, most-visited lists, and every tab position except top. Each of
 those was a Breached feature and a Breached bug surface.
 
-## How it runs (first Windows run is still the real test)
+## How it runs, and the installer
 
 This scaffold has not been run on Windows yet — there is no Gecko
-engine in this environment to run it on. The intended first run, from
-a Firefox install on Windows:
+engine in this environment to run it on. You do not need to test it
+from a Firefox install: the Release workflow builds a self-contained
+installer (see docs/INSTALLER.md) that needs no Firefox first, no
+admin rights, and nothing else on your computer. Download
+`SeijakuSetup-0.1.0.exe` from the release, run it, and Seijaku starts.
+
+For developers, the window can also be started from a Firefox install:
 
 ```powershell
 firefox.exe -app shell\application.ini
 ```
 
 That starts the Seijaku window from the shell in this repo, with its
-own profile in `%APPDATA%\Seijaku`. `scripts/build/package.ps1` copies
-`shell/` into a Firefox install folder and renames the launcher, the
-same way Breached's packaging worked; the installer and the Release
-workflow come after that first run proves the window opens, tabs open,
-and the address line navigates.
+own profile in `%APPDATA%\Seijaku`. `scripts/build/package.ps1` is
+what the Release workflow uses to turn a Firefox installer into the
+packaged app the installer wraps.
 
 ## Version
 
