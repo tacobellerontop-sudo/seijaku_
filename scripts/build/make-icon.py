@@ -53,7 +53,10 @@ def main():
     w, h = box[2] - box[0], box[3] - box[1]
     draw.text(((size - w) / 2 - box[0], (size - h) / 2 - box[1]), text, font=font, fill=WHITE)
 
-    img.save(args.out, sizes=[(256, 256), (128, 128), (64, 64), (48, 48), (32, 32), (16, 16)])
+    # Breached's exact size set: Windows asks for 20/24/40 too (the
+    # taskbar uses 24), and an icon without the size Windows asks for
+    # is one more reason to fall back to the exe's icon.
+    img.save(args.out, sizes=[(256, 256), (128, 128), (64, 64), (48, 48), (40, 40), (32, 32), (24, 24), (20, 20), (16, 16)])
     if args.png:
         img.save(args.png)
     print(f"make-icon: wrote {args.out}")

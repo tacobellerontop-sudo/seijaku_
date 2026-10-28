@@ -1,2 +1,5 @@
 content seijaku chrome/content/
 resource seijaku modules/
+content branding chrome/branding/
+locale branding en-US chrome/branding/
+category l10n-registry 5-seijaku resource://app/localization/{locale}/
