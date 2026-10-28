@@ -23,3 +23,10 @@ label select {
   margin-top: 6px;
   box-sizing: border-box;
 }
+
+label input[type="checkbox"] {
+  display: inline;
+  width: auto;
+  margin: 0 6px 0 0;
+  vertical-align: middle;
+}
