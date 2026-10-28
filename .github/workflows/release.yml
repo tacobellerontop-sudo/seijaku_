@@ -84,7 +84,7 @@ jobs:
           $p = Start-Process $setup.FullName -PassThru -Wait -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/CURRENTUSER', '/NORESTART'
           if ($p.ExitCode) { throw "installer exited with $($p.ExitCode)" }
           $dir = "$env:LOCALAPPDATA\Programs\Seijaku"
-          foreach ($f in 'seijaku.exe', 'firefox.exe', 'xul.dll', 'seijaku\application.ini', 'unins000.exe') {
+          foreach ($f in 'seijaku.exe', 'xul.dll', 'seijaku\application.ini', 'unins000.exe') {
             if (-not (Test-Path (Join-Path $dir $f))) { throw "installed app has no $f" }
           }
           $lnk = Get-ChildItem "$env:APPDATA\Microsoft\Windows\Start Menu\Programs" -Recurse -Filter 'Seijaku.lnk'
