@@ -70,6 +70,17 @@ if ($LASTEXITCODE) { throw 'building the launcher failed' }
 # The shell.
 Copy-Item -Recurse (Join-Path $repo 'shell') (Join-Path $app 'seijaku')
 
+# The window icon, Breached's method: Gecko picks up a window's icon
+# from chrome/icons/default/<window-id>.ico, where <window-id> is the id
+# of the <html> element in seijaku.xhtml ("seijaku-window"). That icon
+# is what Windows shows on the taskbar and in Alt+Tab — the launcher
+# exe's icon alone never reaches the browser window, because the window
+# belongs to firefox.exe. The .ico is drawn here at build time (same
+# seal as the installer icon), so the repo stays text-only.
+$windowIconDir = Join-Path $app 'seijaku\chrome\icons\default'
+New-Item -ItemType Directory -Force $windowIconDir | Out-Null
+Copy-Item $icon (Join-Path $windowIconDir 'seijaku-window.ico')
+
 # Portable: the profile lives next to the app, separate from any Firefox.
 Set-Content (Join-Path $app 'Seijaku.bat') '@start "" "%~dp0seijaku.exe" -profile "%~dp0profile" -no-remote %*' -Encoding ascii
 New-Item -ItemType Directory -Force (Join-Path $app 'profile') | Out-Null
