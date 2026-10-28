@@ -1,22 +1,26 @@
 /* Seijaku window. Ma: empty space. Kanso: one thing per row, lines
    instead of boxes. One accent only: vermilion, for the seal, the
    selected tab's underline, and the cursor. Colours come from the theme
-   setting (ink dark by default, paper light); seijaku.js sets them. */
+   setting (ink dark by default, paper light); seijaku.js sets them.
+   Type is Japanese-first: Yu Gothic for the interface, Yu Mincho serif
+   for the seal and other kanji, the way Ryoku pairs Japanese type with
+   Latin. Warm ink, not cold blue-grey. */
 
 :root {
-  --font: "Cascadia Mono", Consolas, "DejaVu Sans Mono", monospace;
+  --font: "Yu Gothic UI", "Yu Gothic", "Meiryo", sans-serif;
+  --serif: "Yu Mincho", "MS Mincho", serif;
   --font-size: 13px;
-  --bar-bg: #14161c;
-  --fg: #e8e6df;
-  --tab: #1a1d24;
-  --tab-selected: #23262f;
-  --tab-selected-fg: #ffffff;
+  --bar-bg: #171310;
+  --fg: #ece4d3;
+  --tab: #1d1812;
+  --tab-selected: #241e17;
+  --tab-selected-fg: #fff8ea;
   --accent: #d8442a;
-  --muted: #8a8d96;
+  --muted: #9a9082;
   --error: #e07b7b;
   --tabbar-height: 34px;
-  --toolbar-height: 40px;
-  --titlebar-height: 36px;
+  --toolbar-height: 36px;
+  --titlebar-height: 38px;
   --command-height: 24px;
 
   height: 100%;
@@ -53,7 +57,8 @@ body {
   display: flex;
   align-items: center;
   padding-inline: 12px 4px;
-  font-size: 20px;
+  font-family: var(--serif);
+  font-size: 22px;
   color: var(--accent);
 }
 #titlebar-content {
@@ -121,6 +126,26 @@ body {
 }
 :root[sizemode="maximized"] #titlebar-max,
 :root:not([sizemode="maximized"]) #titlebar-restore {
+  display: none;
+}
+
+/* ---- Tabs in the title bar row (moved there by seijaku.js). The
+   row stays quiet: seal, tab words, window buttons, nothing else.
+   The standalone rules below are the fallback if the move fails. ---- */
+#titlebar-content {
+  align-items: stretch;
+}
+#titlebar-content > #tabbar {
+  flex: 1;
+  height: auto;
+  border-bottom: none;
+  -moz-window-dragging: drag;
+}
+#titlebar-content > #tabbar .tab,
+#titlebar-content > #tabbar .tab-new {
+  -moz-window-dragging: no-drag;
+}
+#titlebar-title[hidden] {
   display: none;
 }
 

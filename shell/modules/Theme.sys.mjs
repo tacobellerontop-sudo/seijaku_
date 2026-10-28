@@ -1,15 +1,16 @@
 /* Seijaku themes. Two only, on purpose: ink (dark, default) and paper
-   (light). One accent in both: vermilion. */
+   (light). One accent in both: vermilion. Ink is warm, like sumi on
+   washi, not the cold blue-grey of 0.1.0. */
 
 export const THEMES = {
   ink: {
-    barBg: "#14161c",
-    fg: "#e8e6df",
-    tab: "#1a1d24",
-    tabSelected: "#23262f",
-    tabSelectedFg: "#ffffff",
+    barBg: "#171310",
+    fg: "#ece4d3",
+    tab: "#1d1812",
+    tabSelected: "#241e17",
+    tabSelectedFg: "#fff8ea",
     accent: "#d8442a",
-    muted: "#8a8d96",
+    muted: "#9a9082",
     error: "#e07b7b",
   },
   paper: {

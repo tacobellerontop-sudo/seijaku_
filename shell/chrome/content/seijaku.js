@@ -12,7 +12,7 @@ const Theme = ChromeUtils.importESModule("resource://seijaku/Theme.sys.mjs");
 const PREF = "seijaku.";
 const SESSION_FILE = "seijaku-session.json";
 const MESSAGE_MS = 4000;
-const SEIJAKU_VERSION = "0.1.0";
+const SEIJAKU_VERSION = "0.1.1";
 
 const PAGES = {
   "seijaku:home": "chrome://seijaku/content/pages/home.html",
@@ -151,6 +151,24 @@ var Seijaku = {
   },
 
   initTitlebar() {
+    // This is what hides the Windows title bar: without it Gecko draws
+    // its own bar above ours (the double-bar bug in 0.1.0). The attribute
+    // is also on the <html> element in seijaku.xhtml; setting it here too
+    // covers the case where the document is reloaded.
+    document.documentElement.setAttribute("customtitlebar", "true");
+    // One chrome row, Ryoku-style: the tabs live in the title bar row,
+    // after the seal and before the window buttons. The window title is
+    // redundant once tabs carry their own titles, so it is hidden. If
+    // the move fails for any reason, the old two-row layout stays intact.
+    try {
+      let tabbar = document.getElementById("tabbar");
+      let content = document.getElementById("titlebar-content");
+      let title = document.getElementById("titlebar-title");
+      if (tabbar && content && tabbar.parentNode != content) {
+        content.appendChild(tabbar);
+        if (title) title.hidden = true;
+      }
+    } catch (e) { /* keep the two-row layout */ }
     let buttons = {
       "titlebar-min": () => window.minimize(),
       "titlebar-max": () => window.maximize(),

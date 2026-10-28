@@ -1,5 +1,7 @@
 /* Seijaku home page: your sketch, kept. Dark, centred, almost empty.
-   The only decoration is a faint vermilion horizon low on the right. */
+   The decoration is Japanese, not generic-dark: the name's own kanji,
+   静寂 (seijaku, silence), written vertically and large down the right
+   side, Ryoku-style, plus a faint vermilion horizon low on the right. */
 
 body {
   min-height: 100vh;
@@ -8,6 +10,26 @@ body {
   background:
     radial-gradient(55% 40% at 88% 100%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 70%),
     linear-gradient(180deg, var(--bg), color-mix(in srgb, var(--bg) 80%, black));
+}
+
+#vertical {
+  position: fixed;
+  right: 8vw;
+  top: 50%;
+  transform: translateY(-50%);
+  writing-mode: vertical-rl;
+  font-family: "Yu Mincho", "MS Mincho", serif;
+  font-size: clamp(72px, 14vh, 140px);
+  letter-spacing: 0.15em;
+  color: var(--fg);
+  opacity: 0.08;
+  user-select: none;
+  pointer-events: none;
+}
+@media (max-width: 700px) {
+  #vertical {
+    display: none;
+  }
 }
 
 main {
@@ -20,11 +42,19 @@ main {
   font-size: 44px;
   font-weight: normal;
   letter-spacing: 2px;
-  margin: 0 0 28px;
+  margin: 0 0 8px;
 }
 #seal {
   color: var(--accent);
+  font-family: "Yu Mincho", "MS Mincho", serif;
   font-size: 32px;
+}
+#meaning {
+  margin: 0 0 28px;
+  font-family: "Yu Mincho", "MS Mincho", serif;
+  font-size: 15px;
+  letter-spacing: 0.2em;
+  color: var(--muted);
 }
 #cursor {
   color: var(--accent);

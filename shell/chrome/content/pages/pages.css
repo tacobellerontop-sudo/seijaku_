@@ -1,15 +1,15 @@
 /* Seijaku's own pages (home, settings), in the browser's colours. */
 
 :root {
-  --font: "Cascadia Mono", Consolas, "DejaVu Sans Mono", monospace;
-  --bar-bg: #14161c;
-  --fg: #e8e6df;
+  --font: "Yu Gothic UI", "Yu Gothic", "Meiryo", sans-serif;
+  --bar-bg: #171310;
+  --fg: #ece4d3;
   --accent: #d8442a;
-  --muted: #8a8d96;
+  --muted: #9a9082;
   --error: #e07b7b;
   --bg: var(--bar-bg);
   --panel: var(--bar-bg);
-  --line: #2a2d36;
+  --line: #2e2620;
   background: var(--bg);
   color: var(--fg);
   font: 13px/1.5 var(--font);
