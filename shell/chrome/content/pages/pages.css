@@ -50,3 +50,38 @@ button:hover {
 .muted {
   color: var(--muted);
 }
+
+/* In-page dropdown (see dropdown.js): a button + in-flow list that
+   stand in for a native <select>, whose popup never opens in these
+   chrome-hosted pages. The wrap keeps button and list stacked even
+   inside flex rows (bookmarks). */
+.dd-wrap {
+  display: block;
+}
+
+.dd-button {
+  text-align: left;
+  cursor: pointer;
+}
+
+.dd-list {
+  border: 1px solid var(--line);
+  border-top: none;
+  background: var(--panel);
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.dd-option {
+  padding: 4px 6px;
+  cursor: pointer;
+}
+
+.dd-option:hover,
+.dd-option.dd-highlight {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.dd-option[aria-selected="true"] {
+  color: var(--accent);
+}

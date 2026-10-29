@@ -105,6 +105,56 @@ window.addEventListener("DOMContentLoaded", () => {
       Services.prefs.clearUserPref("seijaku.weather.lon");
     } catch (e) { /* the next fetch just re-geocodes anyway */ }
   });
+  // Downloads: the folder is a Seijaku pref, applied to the engine's
+  // own download-directory prefs on change (and again by the shell at
+  // startup), so files downloaded from pages land there. Annotated
+  // PDFs and bookmark exports follow the same folder. Changing it
+  // affects new downloads only.
+  let dlFolder = bind("setting-download-folder", "seijaku.download.folder", "string");
+  let applyDlFolder = () => {
+    try {
+      let dir = dlFolder.value.trim();
+      if (dir) {
+        Services.prefs.setStringPref("browser.download.dir", dir);
+        Services.prefs.setIntPref("browser.download.folderList", 2);
+      } else {
+        Services.prefs.setIntPref("browser.download.folderList", 1);
+      }
+      flashSaved();
+    } catch (e) {
+      // The typed value is still saved to the Seijaku pref by bind();
+      // the shell applies it at the next startup.
+    }
+  };
+  dlFolder.addEventListener("change", applyDlFolder);
+  document.getElementById("setting-download-choose").addEventListener("click", async () => {
+    try {
+      let path = await shellWindow()?.Seijaku?.pickDownloadFolder();
+      if (path) {
+        dlFolder.value = path;
+        // Setting the value by hand does not fire change, so save and
+        // apply it explicitly (bind's saver reads el.value).
+        Services.prefs.setStringPref("seijaku.download.folder", path);
+        applyDlFolder();
+      }
+    } catch (e) {
+      // Typing the path by hand still works.
+    }
+  });
+  let dlAsk = document.getElementById("setting-download-ask");
+  try {
+    dlAsk.checked = Services.prefs.getBoolPref("seijaku.download.ask", false);
+  } catch (e) {
+    dlAsk.checked = false;
+  }
+  dlAsk.addEventListener("change", () => {
+    try {
+      Services.prefs.setBoolPref("seijaku.download.ask", dlAsk.checked);
+      // Engine meaning is inverted: useDownloadDir false = ask.
+      Services.prefs.setBoolPref("browser.download.useDownloadDir", !dlAsk.checked);
+      flashSaved();
+    } catch (e) {}
+  });
   // Clear browsing data goes through the shell (the page never
   // touches the cookie or cache services itself).
   document.getElementById("setting-clear-data").addEventListener("click", () => {

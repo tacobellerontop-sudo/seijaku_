@@ -1,10 +1,20 @@
-/* Downloads manager: renders the engine's own download list,
-   polled so progress moves while the page is open. Remove takes a
-   download off this list only — it never deletes the file. */
+/* Downloads manager: renders the engine's own download list plus the
+   shell's stored history (see seijaku.js: the engine list in this
+   shell is session-only, so finished downloads are recorded in
+   seijaku-data.json and merged here), polled so progress moves while
+   the page is open. Remove takes a download off this list only — it
+   never deletes the finished file (for unfinished entries it also
+   drops the partial file). Speed and time left come from the change
+   in bytes between polls, page-side. */
 
 "use strict";
 
 const shellWindow = () => window.browsingContext.topChromeWindow;
+
+// Last poll's { time, current } per download key, for speed/ETA.
+// Kept outside the render key on purpose: speed changes must not
+// rebuild rows (and steal focus) by themselves.
+let prev = new Map();
 
 function sizeText(bytes) {
   if (bytes == null || bytes < 0) {
@@ -27,9 +37,25 @@ function stateText(state) {
       return "Cancelled";
     case "failed":
       return "Failed";
+    case "paused":
+      return "Paused";
     default:
       return "Downloading…";
   }
+}
+
+function etaText(seconds) {
+  if (!isFinite(seconds) || seconds < 0) {
+    return "";
+  }
+  seconds = Math.round(seconds);
+  if (seconds < 60) {
+    return `${seconds}s left`;
+  }
+  if (seconds < 3600) {
+    return `${Math.floor(seconds / 60)}m ${seconds % 60}s left`;
+  }
+  return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m left`;
 }
 
 function render() {
@@ -42,16 +68,26 @@ function render() {
   let note = document.getElementById("unavailable");
   note.hidden = shell.downloadsReady();
   let downloads = shell.getDownloads();
-  // Only rebuild when something changed, so progress updates don't
-  // tear the list down (and steal focus) every half second.
+  // Only rebuild when something changed, so a static list doesn't
+  // tear itself down (and steal focus) every half second. While
+  // anything is downloading the list always rebuilds: progress moves,
+  // and speed/ETA need a fresh sample each poll.
   let key = JSON.stringify(downloads);
-  if (key == render._last) {
+  if (key == render._last && !downloads.some(d => d.state == "downloading")) {
     return;
   }
   render._last = key;
+  let query = (document.getElementById("search").value || "").trim().toLowerCase();
+  let shown = query
+    ? downloads.filter(d =>
+        `${d.name || ""} ${d.path || ""} ${d.source || ""}`.toLowerCase().includes(query)
+      )
+    : downloads;
   list.replaceChildren();
-  empty.hidden = downloads.length != 0 || !shell.downloadsReady();
-  for (let dl of downloads) {
+  empty.hidden = shown.length != 0 || !shell.downloadsReady();
+  empty.textContent = query ? "Nothing matches that search." : "No downloads yet.";
+  let now = Date.now();
+  for (let dl of shown) {
     let row = document.createElement("div");
     row.className = "row";
     let main = document.createElement("div");
@@ -64,6 +100,25 @@ function render() {
     let parts = [stateText(dl.state)];
     if (dl.state == "downloading") {
       parts.push(`${dl.progress}%`);
+      // Speed from this poll's delta; ETA from speed and remainder.
+      let last = prev.get(dl.key);
+      prev.set(dl.key, { time: now, current: dl.current });
+      if (last) {
+        let dt = (now - last.time) / 1000;
+        let db = dl.current - last.current;
+        if (dt > 0 && db > 0) {
+          let speed = db / dt;
+          parts.push(`${sizeText(speed)}/s`);
+          if (dl.total > 0) {
+            let eta = etaText((dl.total - dl.current) / speed);
+            if (eta) {
+              parts.push(eta);
+            }
+          }
+        }
+      }
+    } else {
+      prev.delete(dl.key);
     }
     let sizes = [sizeText(dl.current), dl.total > 0 ? sizeText(dl.total) : ""]
       .filter(Boolean)
@@ -77,22 +132,51 @@ function render() {
     let act = (label, action) => {
       let button = document.createElement("button");
       button.textContent = label;
-      button.addEventListener("click", () => shell.downloadAction(dl.path, action));
+      button.addEventListener("click", () => shell.downloadAction(dl.key, action));
       row.append(button);
     };
     if (dl.state == "downloading") {
+      // No Remove while active: Cancel stops it, and Remove appears
+      // once it has stopped (removing a live transfer is the
+      // engine's call, not a list edit).
+      act("Pause", "pause");
       act("Cancel", "cancel");
-    }
-    if (dl.state == "finished") {
+    } else if (dl.state == "paused") {
+      if (dl.canResume) {
+        act("Resume", "resume");
+      } else {
+        act("Restart", "retry");
+      }
+      act("Cancel", "cancel");
+      act("Remove", "remove");
+    } else if (dl.state == "failed" || dl.state == "cancelled") {
+      act("Retry", "retry");
+      act("Remove", "remove");
+    } else if (dl.state == "finished") {
       act("Open", "open");
       act("Show in folder", "reveal");
+      // A stored entry's file may be gone; re-downloading it is the
+      // point of keeping its source address.
+      if (dl.stored) {
+        act("Retry", "retry");
+      }
+      act("Remove", "remove");
     }
-    act("Remove", "remove");
     list.append(row);
   }
 }
 
 window.addEventListener("DOMContentLoaded", () => {
+  let shell = shellWindow()?.Seijaku;
+  document.getElementById("search").addEventListener("input", render);
+  document.getElementById("clear-finished").addEventListener("click", () => {
+    shell?.clearFinishedDownloads();
+    render();
+  });
+  document.getElementById("clear-all").addEventListener("click", () => {
+    shell?.clearAllDownloads();
+    render();
+  });
   render();
   setInterval(render, 500);
 });

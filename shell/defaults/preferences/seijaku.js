@@ -19,7 +19,9 @@ pref("seijaku.weather.enabled", true);         // the home page's weather widget
 pref("seijaku.weather.city", "Singapore");     // geocoded once, then stored as lat/lon below
 pref("seijaku.weather.lat", "");               // filled on first weather fetch
 pref("seijaku.weather.lon", "");
-pref("seijaku.chrome.autohide", false);        // hide the strip, keep only the reveal strip at the placement edge (Settings)
+pref("seijaku.chrome.autohide", false);   // hide the strip, keep only the reveal strip at the placement edge (Settings)
+pref("seijaku.download.folder", "");   // custom download folder (Settings); empty means the system Downloads folder
+pref("seijaku.download.ask", false);   // ask where to save each file (Settings)
 /* Location is denied outright, never prompted: it is the one
    permission Seijaku deliberately does not offer. The prompt
    component denies it again as a second layer. */
@@ -45,6 +47,13 @@ pref("media.gmp-widevinecdm.enabled", true);
    an empty channel, Mozilla's server returns nothing, and the CDM
    never downloads (a DRM tester then reports Widevine not found). */
 pref("app.update.channel", "release");
+/* Explicit Widevine download settings (belt-and-braces: the URL
+   default lives in the engine, but stating it here removes one
+   unknown from the DRM diagnosis, and visible/autoupdate make the
+   intent explicit). */
+pref("media.gmp-manager.url", "https://aus5.mozilla.org/update/3/GMP/%VERSION%/%BUILD_ID%/%BUILD_TARGET%/%LOCALE%/%CHANNEL%/%OS_VERSION%/%DISTRIBUTION%/%DISTRIBUTION_VERSION%/update.xml");
+pref("media.gmp-widevinecdm.visible", true);
+pref("media.gmp-widevinecdm.autoupdate", true);
 
 /* Stripped Mozilla services: see docs/STRIPPED.md for why each is here.
    Every one of these is a background task, a network call, or a bundled

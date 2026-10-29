@@ -18,7 +18,7 @@ const SESSION_FILE = "seijaku-session.json";
 const DATA_FILE = "seijaku-data.json";
 const HISTORY_LIMIT = 1000;
 const MESSAGE_MS = 4000;
-const SEIJAKU_VERSION = "0.2.2";
+const SEIJAKU_VERSION = "0.2.3";
 const UPDATE_REPO = "tacobellerontop-sudo/seijaku_";
 const UPDATE_CHECK_MS = 24 * 60 * 60 * 1000;
 
@@ -102,6 +102,7 @@ var Seijaku = {
   // The engine's download list, kept by initDownloads.
   _downloads: [],
   _downloadsReady: false,
+  _downloadsList: null,
   // Whether this window is private (Ctrl+Shift+N): no session, no
   // history, the private downloads list. Set in init from the window
   // arguments (and the engine's own private flag).
@@ -163,6 +164,7 @@ var Seijaku = {
     }
     this.applyTheme();
     this.applyTrackingProtection();
+    this.applyDownloadPrefs();
     // A System theme follows the OS live: when the OS flips dark /
     // light, the chrome re-applies (pages do the same in theme.js).
     try {
@@ -196,6 +198,7 @@ var Seijaku = {
     document.getElementById("tab-undo").addEventListener("click", () => this.undoCloseTab());
     document.getElementById("bookmark-star").addEventListener("click", () => this.toggleBookmark());
     document.getElementById("strip-menu").addEventListener("click", () => this.openPage("settings"));
+    document.getElementById("downloads-button").addEventListener("click", () => this.openPage("downloads"));
     document.getElementById("perm-lock").addEventListener("click", () => this.showPermissionManage());
     document.getElementById("sec-lock").addEventListener("click", () => this.showSiteInfo());
     document.getElementById("edge-strip").addEventListener("mouseenter", () => this.showChrome());
@@ -805,7 +808,7 @@ var Seijaku = {
   loadData() {
     let path = this.dataPath();
     if (!path) {
-      this._data = { bookmarks: [], history: [], permissions: {} };
+      this._data = { bookmarks: [], history: [], permissions: {}, downloadsHistory: [] };
       return;
     }
     IOUtils.readJSON(path)
@@ -826,10 +829,13 @@ var Seijaku = {
           folders: Array.isArray(data?.folders)
             ? data.folders.filter(f => typeof f == "string" && f)
             : [],
+          downloadsHistory: Array.isArray(data?.downloadsHistory)
+            ? data.downloadsHistory.filter(e => e && typeof e.path == "string")
+            : [],
         };
       })
       .catch(() => {
-        this._data = { bookmarks: [], history: [], permissions: {}, folders: [] };
+        this._data = { bookmarks: [], history: [], permissions: {}, folders: [], downloadsHistory: [] };
       });
   },
 
@@ -863,7 +869,7 @@ var Seijaku = {
       return;
     }
     if (!this._data) {
-      this._data = { bookmarks: [], history: [], permissions: {} };
+      this._data = { bookmarks: [], history: [], permissions: {}, downloadsHistory: [] };
     }
     let index = this._data.bookmarks.findIndex(b => b.url == tab.url);
     if (index >= 0) {
@@ -954,7 +960,8 @@ var Seijaku = {
   /** Writes a text file into the Downloads folder. */
   async saveTextFile(filename, text) {
     let safe = String(filename).replace(/[\\/:*?"<>|]/g, "_") || "seijaku.txt";
-    let dir = Services.dirsvc.get("DfltDwnld", Ci.nsIFile);
+    // The Settings download folder, when set (else the engine default).
+    let dir = this.downloadDir();
     let file = dir.clone();
     file.append(safe);
     let { IOUtils } = ChromeUtils.importESModule("resource://gre/modules/IOUtils.sys.mjs");
@@ -1095,7 +1102,7 @@ var Seijaku = {
   /** Merges parsed bookmarks, skipping URLs already stored. */
   mergeBookmarks(parsed) {
     if (!this._data) {
-      this._data = { bookmarks: [], history: [], permissions: {}, folders: [] };
+      this._data = { bookmarks: [], history: [], permissions: {}, folders: [], downloadsHistory: [] };
     }
     let have = new Set(this._data.bookmarks.map(b => b.url));
     let added = 0;
@@ -1284,6 +1291,13 @@ var Seijaku = {
           } catch (e) { /* one download staying listed is fine */ }
         }
         this._downloads = [];
+        // The stored history is part of "downloads" too; files on
+        // disk are untouched, as before.
+        if (this._data?.downloadsHistory) {
+          this._data.downloadsHistory = [];
+          this.saveData();
+        }
+        this.updateDownloadsButton();
         done.push("downloads");
       } catch (e) { skipped.push("downloads"); }
     }
@@ -1879,6 +1893,7 @@ var Seijaku = {
       // A private window reads the private downloads list, so its
       // downloads never appear on the main window's page.
       let list = await Downloads.getList(this.isPrivate ? Downloads.PRIVATE : Downloads.PUBLIC);
+      this._downloadsList = list;
       this._downloads = [];
       this._downloadsReady = true;
       let keyFor = dl => {
@@ -1898,16 +1913,26 @@ var Seijaku = {
           if (!this._downloads.some(e => e.key == key)) {
             this._downloads.unshift(this.downloadData(dl, key));
           }
+          this.updateDownloadsButton();
         },
         onDownloadChanged: dl => {
           let entry = this._downloads.find(e => e.key == keyFor(dl));
           if (entry) {
+            let was = entry.state;
             Object.assign(entry, this.downloadData(dl, entry.key));
+            // Only a live transition counts as a finish: downloads
+            // already finished when the view attached (or enumerated
+            // below) must not pop a note on every startup.
+            if (was == "downloading" && entry.state == "finished") {
+              this.noteDownloadFinished(entry);
+            }
+            this.updateDownloadsButton();
           }
         },
         onDownloadRemoved: dl => {
           let key = keyFor(dl);
           this._downloads = this._downloads.filter(e => e.key != key);
+          this.updateDownloadsButton();
         },
       });
       // A view is told about downloads already in the list, but
@@ -1920,6 +1945,7 @@ var Seijaku = {
           this._downloads.push(this.downloadData(dl, key));
         }
       }
+      this.updateDownloadsButton();
     } catch (e) {
       this._downloadsReady = false;
     }
@@ -1932,12 +1958,31 @@ var Seijaku = {
       path = dl.target?.path || "";
       name = path.split(/[\\/]/).pop() || "";
     } catch (e) { /* name stays empty */ }
+    // The source address is what a retry re-downloads from, and what
+    // the manager's search matches on besides the name.
+    let source = "";
+    try {
+      source = dl.source?.url || "";
+    } catch (e) { /* source stays empty */ }
+    // Pause is not a Download method: the front end's pause is
+    // cancel-keeping-partial-data, and resume is start() on the same
+    // object (Range requests if the server supports them). So a
+    // canceled download that still has partial data IS a paused one,
+    // and resume is only offered when start() exists.
+    let paused = false;
+    let canResume = false;
+    try {
+      paused = !!(dl.canceled && dl.hasPartialData);
+    } catch (e) { /* not paused */ }
+    try {
+      canResume = typeof dl.start == "function";
+    } catch (e) { /* can't resume */ }
     let state = "downloading";
     try {
       if (dl.succeeded) {
         state = "finished";
       } else if (dl.canceled) {
-        state = "cancelled";
+        state = paused ? "paused" : "cancelled";
       } else if (dl.error) {
         state = "failed";
       }
@@ -1952,51 +1997,337 @@ var Seijaku = {
     } catch (e) { /* sizes stay unknown */ }
     // The live object stays on the entry so actions can reach it;
     // getDownloads strips it before anything crosses to a page.
-    return { key, dl, name, path, state, progress, current, total };
+    return { key, dl, name, path, source, state, progress, current, total, canResume };
   },
 
   downloadsReady() {
     return !!this._downloadsReady;
   },
 
-  /** Plain data for the downloads page (no engine objects cross over). */
+  /** Plain data for the downloads page (no engine objects cross over).
+      Live entries come first, then the stored history (see
+      noteDownloadFinished): the engine list in this shell is
+      session-only — the persistence wiring (DownloadStore, the
+      downloads.json store) lives in Firefox's front end, which the
+      packager drops — so without the store, history would vanish on
+      every restart. A stored entry whose path matches a live entry is
+      dropped (the live one wins), so a build whose list does persist
+      can never double-list. */
   getDownloads() {
-    return (this._downloads ?? []).map(({ dl, ...plain }) => plain);
+    let live = (this._downloads ?? []).map(({ dl, ...plain }) => plain);
+    let stored = [];
+    try {
+      stored = (this._data?.downloadsHistory ?? [])
+        .filter(e => e && typeof e.path == "string")
+        .map(e => ({
+          key: e.key,
+          name: e.name || "",
+          path: e.path,
+          source: e.source || "",
+          state: "finished",
+          progress: 100,
+          current: e.total > 0 ? e.total : 0,
+          total: e.total ?? -1,
+          canResume: false,
+          stored: true,
+          finishedAt: e.finishedAt || 0,
+        }));
+    } catch (e) { /* history is a nicety, never fatal */ }
+    let livePaths = new Set(live.map(e => e.path));
+    return [...live, ...stored.filter(e => !livePaths.has(e.path))];
   },
 
-  downloadAction(path, action) {
-    let entry = (this._downloads ?? []).find(e => e.path == path);
-    if (!entry) {
+  /** The page acts by key (not path: two downloads of one file share
+      a path but not a key); the shell finds the entry again here. */
+  downloadAction(key, action) {
+    let entry = (this._downloads ?? []).find(e => e.key == key);
+    if (entry?.dl) {
+      let dl = entry.dl;
+      try {
+        if (action == "pause") {
+          // Cancel, but keep the partial data: that IS the pause.
+          dl.cancel();
+        } else if (action == "resume") {
+          if (typeof dl.start == "function") {
+            let done = dl.start();
+            if (done && done.catch) {
+              done.catch(() =>
+                this.showMessage("Couldn't resume this download", "error")
+              );
+            }
+          } else {
+            this.showMessage("This download can't be resumed", "error");
+          }
+        } else if (action == "cancel") {
+          // Cancel AND drop the partial data, so Cancel truly deletes
+          // (plain cancel() alone would leave a .part file behind).
+          dl.cancel();
+          if (dl.removePartial) {
+            let done = dl.removePartial();
+            if (done && done.catch) {
+              done.catch(() => {});
+            }
+          }
+        } else if (action == "remove") {
+          if (entry.state != "finished") {
+            // Clear away a partial file too, where one exists.
+            if (dl.removePartial) {
+              let done = dl.removePartial();
+              if (done && done.catch) {
+                done.catch(() => {});
+              }
+            }
+          }
+          dl.remove();
+        } else if (action == "open") {
+          // launch() rejects (rather than throwing) when the file is
+          // gone, so a bare call would leave an unhandled rejection.
+          let done = dl.launch();
+          if (done && done.catch) {
+            done.catch(() =>
+              this.showMessage("That file is no longer there", "error")
+            );
+          }
+        } else if (action == "reveal") {
+          let file = Cc["@mozilla.org/file/local;1"].createInstance(Ci.nsIFile);
+          file.initWithPath(entry.path);
+          file.reveal();
+        } else if (action == "retry") {
+          this.retryDownload(entry.source, entry.path);
+        }
+      } catch (e) {
+        this.showMessage(`Couldn't do that with the download: ${e.message}`, "error");
+      }
+      this.updateDownloadsButton();
       return;
     }
-    // The live object is not handed to the page, so the page acts by
-    // path and the shell finds the download again here.
-    let dl = entry.dl;
-    if (!dl) {
+    // No live object: a stored history entry. Open/reveal go through
+    // the file itself, remove drops the record, retry re-downloads.
+    let rec = (this._data?.downloadsHistory ?? []).find(e => e.key == key);
+    if (!rec) {
       return;
     }
     try {
-      if (action == "cancel") {
-        dl.cancel();
-      } else if (action == "remove") {
-        dl.remove();
+      if (action == "remove") {
+        this._data.downloadsHistory = this._data.downloadsHistory.filter(e => e.key != key);
+        this.saveData();
       } else if (action == "open") {
-        // launch() rejects (rather than throwing) when the file is
-        // gone, so a bare call would leave an unhandled rejection.
-        let done = dl.launch();
-        if (done && done.catch) {
-          done.catch(() =>
-            this.showMessage("That file is no longer there", "error")
-          );
-        }
+        this.launchFile(rec.path);
       } else if (action == "reveal") {
         let file = Cc["@mozilla.org/file/local;1"].createInstance(Ci.nsIFile);
-        file.initWithPath(entry.path);
+        file.initWithPath(rec.path);
         file.reveal();
+      } else if (action == "retry") {
+        this.retryDownload(rec.source, rec.path);
       }
     } catch (e) {
       this.showMessage(`Couldn't do that with the download: ${e.message}`, "error");
     }
+  },
+
+  /** Open a file by path (stored entries have no live Download). */
+  launchFile(path) {
+    try {
+      let file = Cc["@mozilla.org/file/local;1"].createInstance(Ci.nsIFile);
+      file.initWithPath(path);
+      file.launch();
+    } catch (e) {
+      this.showMessage("That file is no longer there", "error");
+    }
+  },
+
+  /** Re-download from the source address into the same target path.
+      A retry starts from scratch: it does not range-resume the old
+      partial file (the new download's own saver overwrites it). */
+  async retryDownload(sourceUrl, targetPath) {
+    try {
+      if (!sourceUrl) {
+        this.showMessage("No source address was kept for this download", "error");
+        return;
+      }
+      let { Downloads } = ChromeUtils.importESModule(
+        "resource://gre/modules/Downloads.sys.mjs"
+      );
+      if (!this._downloadsList) {
+        this._downloadsList = await Downloads.getList(
+          this.isPrivate ? Downloads.PRIVATE : Downloads.PUBLIC
+        );
+      }
+      let download = await Downloads.createDownload({
+        source: { url: sourceUrl },
+        target: { path: targetPath },
+      });
+      await this._downloadsList.add(download);
+      await download.start();
+    } catch (e) {
+      this.showMessage(`Couldn't restart the download: ${e.message}`, "error");
+    }
+  },
+
+  /** A live finish, recorded for history (private windows never record:
+      their downloads list is private and the store is shared). The
+      message line gets a note either way — that line belongs to this
+      window alone. */
+  noteDownloadFinished(entry) {
+    try {
+      if (!this.isPrivate && this._data) {
+        if (!Array.isArray(this._data.downloadsHistory)) {
+          this._data.downloadsHistory = [];
+        }
+        this._data.downloadsHistory.unshift({
+          key: "stored|" + entry.path + "|" + Date.now(),
+          name: entry.name,
+          path: entry.path,
+          source: entry.source || "",
+          total: entry.total ?? -1,
+          finishedAt: Date.now(),
+          state: "finished",
+        });
+        if (this._data.downloadsHistory.length > 100) {
+          this._data.downloadsHistory.length = 100;
+        }
+        this.saveData();
+      }
+    } catch (e) { /* history is a nicety, never fatal */ }
+    try {
+      this.showMessage(`Downloaded ${entry.name || "file"}`);
+    } catch (e) {}
+  },
+
+  /** The strip button: plain arrow when idle, first active download's
+      percentage while one runs (plain text, so it still reads if the
+      arrow glyph is unavailable). DOM writes only on a real change,
+      because download-changed callbacks fire very often. */
+  updateDownloadsButton() {
+    let btn = document.getElementById("downloads-button");
+    if (!btn) {
+      return;
+    }
+    let active = (this._downloads ?? []).find(e => e.state == "downloading");
+    let label = "↓";
+    let title = "Downloads (Ctrl+J)";
+    if (active) {
+      label = `↓ ${active.progress || 0}%`;
+      title = `Downloading: ${active.progress || 0}% — Downloads (Ctrl+J)`;
+    }
+    if (btn.textContent != label) {
+      btn.textContent = label;
+    }
+    if (btn.title != title) {
+      btn.title = title;
+    }
+    btn.classList.toggle("downloading", !!active);
+  },
+
+  /** Clear finished, cancelled and failed entries (live ones via the
+      engine, stored ones by dropping the record). Downloading and
+      paused entries are left alone — pausing is not finishing. */
+  clearFinishedDownloads() {
+    try {
+      for (let entry of [...(this._downloads ?? [])]) {
+        if (entry.state == "downloading" || entry.state == "paused") {
+          continue;
+        }
+        try {
+          if (entry.state != "finished" && entry.dl?.removePartial) {
+            let done = entry.dl.removePartial();
+            if (done && done.catch) {
+              done.catch(() => {});
+            }
+          }
+          entry.dl?.remove();
+        } catch (e) { /* one entry staying listed is fine */ }
+      }
+      this._downloads = this._downloads.filter(
+        e => e.state == "downloading" || e.state == "paused"
+      );
+      if (this._data?.downloadsHistory) {
+        this._data.downloadsHistory = [];
+        this.saveData();
+      }
+    } catch (e) { /* clearing is a nicety, never fatal */ }
+    this.updateDownloadsButton();
+  },
+
+  /** Clear everything: downloading entries are cancelled (and their
+      partial data dropped) before removal, paused entries have their
+      partial data dropped too, then every entry is removed. */
+  clearAllDownloads() {
+    try {
+      for (let entry of [...(this._downloads ?? [])]) {
+        try {
+          if (entry.state == "downloading") {
+            entry.dl?.cancel();
+          }
+          if (entry.dl?.removePartial) {
+            let done = entry.dl.removePartial();
+            if (done && done.catch) {
+              done.catch(() => {});
+            }
+          }
+          entry.dl?.remove();
+        } catch (e) { /* one entry staying listed is fine */ }
+      }
+      this._downloads = [];
+      if (this._data?.downloadsHistory) {
+        this._data.downloadsHistory = [];
+        this.saveData();
+      }
+    } catch (e) { /* clearing is a nicety, never fatal */ }
+    this.updateDownloadsButton();
+  },
+
+  /** Apply the Settings download prefs to the engine's own prefs, so
+      files downloaded from pages land in the chosen folder (or the
+      system Downloads folder when it is empty), and ask-where-to-save
+      behaves as the toggle says. Runs at startup; the settings page
+      applies the same prefs on change. */
+  applyDownloadPrefs() {
+    try {
+      let folder = this.pref("download.folder", "");
+      if (folder) {
+        Services.prefs.setStringPref("browser.download.dir", folder);
+        Services.prefs.setIntPref("browser.download.folderList", 2);
+      } else {
+        Services.prefs.setIntPref("browser.download.folderList", 1);
+      }
+      Services.prefs.setBoolPref(
+        "browser.download.useDownloadDir",
+        !this.pref("download.ask", false)
+      );
+    } catch (e) { /* the engine's own defaults stand */ }
+  },
+
+  /** Directory picker for the Settings folder field. Returns the
+      chosen path, or "" when cancelled or unavailable (the settings
+      page then just keeps the typed path). */
+  async pickDownloadFolder() {
+    try {
+      let fp = Cc["@mozilla.org/filepicker;1"].createInstance(Ci.nsIFilePicker);
+      fp.init(window, "Choose a download folder", Ci.nsIFilePicker.modeGetFolder);
+      let rv = await fp.open();
+      if (rv == Ci.nsIFilePicker.returnOK && fp.file) {
+        return fp.file.path;
+      }
+    } catch (e) { /* typing the path by hand still works */ }
+    return "";
+  },
+
+  /** Where the shell's own files go (annotated PDFs, bookmark
+      exports): the Settings download folder when it is set and
+      exists, else the engine's default Downloads folder. */
+  downloadDir() {
+    try {
+      let folder = this.pref("download.folder", "");
+      if (folder) {
+        let file = Cc["@mozilla.org/file/local;1"].createInstance(Ci.nsIFile);
+        file.initWithPath(folder);
+        if (file.exists() && file.isDirectory()) {
+          return file;
+        }
+      }
+    } catch (e) { /* fall through to the engine default */ }
+    return Services.dirsvc.get("DfltDwnld", Ci.nsIFile);
   },
 
   // -------------------------------------------------------------- floating URL bar
@@ -3463,7 +3794,8 @@ var Seijaku = {
     // Normalize into this compartment: bytes arriving from a page
     // fail instanceof checks here, but the constructor copies them.
     let data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-    let dir = Services.dirsvc.get("DfltDwnld", Ci.nsIFile);
+    // The Settings download folder, when set (else the engine default).
+    let dir = this.downloadDir();
     let file = dir.clone();
     file.append(safe);
     let { IOUtils } = ChromeUtils.importESModule("resource://gre/modules/IOUtils.sys.mjs");

@@ -104,6 +104,25 @@ body {
   gap: 2px;
   -moz-window-dragging: no-drag;
 }
+/* Horizontal strips: the tab bar takes all free space, so the actions
+   sit at the right edge no matter how few tabs are open. (Before, the
+   drag space after the actions ate it, and the actions drifted toward
+   the middle.) The tab bar itself is the drag area, so nothing is
+   lost. Side strips keep actions at the bottom via margin-top: auto
+   below, unchanged. A flexing tab bar also fixes the many-tabs case:
+   it now shrinks instead of pushing the actions off the right edge. */
+:root:not([tabs-position="left"]):not([tabs-position="right"]) #tabbar {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+:root:not([tabs-position="left"]):not([tabs-position="right"]) #strip-drag {
+  flex: none;
+}
+/* The downloads button shows the first active download's percentage
+   (plain text, so it still reads if the arrow glyph is unavailable). */
+#downloads-button.downloading {
+  color: var(--accent);
+}
 :root[tabs-position="left"] #strip-actions,
 :root[tabs-position="right"] #strip-actions {
   /* Actions sit at the bottom of a side strip. */

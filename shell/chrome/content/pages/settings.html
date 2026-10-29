@@ -7,6 +7,8 @@
   <link rel="stylesheet" href="chrome://seijaku/content/pages/settings.css" />
   <script src="chrome://seijaku/content/pages/theme.js"></script>
   <script src="chrome://seijaku/content/pages/settings.js"></script>
+  <!-- After settings.js: enhancement runs once bindings have set values. -->
+  <script src="chrome://seijaku/content/pages/dropdown.js"></script>
 </head>
 <body>
   <main>
@@ -117,6 +119,22 @@
       <button id="setting-clear-data" type="button">Clear selected data</button>
       <p id="clear-result" class="muted"></p>
     </div>
+    <h2>downloads</h2>
+    <p class="muted">Files downloaded from pages land here, and so do
+    annotated PDFs and bookmark exports. Changing it affects new
+    downloads only — anything already downloaded stays where it is.</p>
+    <label>
+      Download folder
+      <input id="setting-download-folder" type="text" spellcheck="false" />
+    </label>
+    <p><button id="setting-download-choose" type="button">Choose folder…</button></p>
+    <label>
+      <input id="setting-download-ask" type="checkbox" />
+      Ask where to save each file
+      <span class="muted">Off means files go straight to the folder
+      above — or the system Downloads folder when the field is empty.</span>
+    </label>
+
     <h2>weather</h2>
     <p class="muted">The home page's weather widget, from Open-Meteo (no account, no key). Changing the city re-geocodes it on the next home page load.</p>
     <label>

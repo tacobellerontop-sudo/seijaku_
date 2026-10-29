@@ -82,6 +82,11 @@ function render() {
     row.append(main, move, remove);
     list.append(row);
   }
+  // render() replaces every row's move dropdown, so re-enhance after
+  // each render (idempotent: already-enhanced selects are skipped).
+  // The folder filter itself persists; its option rebuild above is
+  // picked up by the component's MutationObserver.
+  window.SeijakuDropdown?.enhanceAll();
 }
 
 window.addEventListener("DOMContentLoaded", () => {

@@ -75,6 +75,28 @@ Rename-Item (Join-Path $app 'firefox.exe') 'seijaku.exe'
 # The shell.
 Copy-Item -Recurse (Join-Path $repo 'shell') (Join-Path $app 'seijaku')
 
+# Stamp the engine's real version and build ID into the packaged
+# application.ini, so the Widevine download request advertises the
+# engine that is actually shipping instead of the repo's hardcoded
+# values (which drift as firefox-latest moves on). If platform.ini is
+# absent or unreadable, the repo values stand — never fail the build
+# over this.
+$platformIni = Join-Path $app 'platform.ini'
+$packagedIni = Join-Path $app 'seijaku\application.ini'
+if ((Test-Path $platformIni) -and (Test-Path $packagedIni)) {
+    $milestone = $null; $buildId = $null
+    foreach ($line in (Get-Content $platformIni)) {
+        if ($line -match '^Milestone=(.+)$') { $milestone = $Matches[1].Trim() }
+        if ($line -match '^BuildID=(.+)$') { $buildId = $Matches[1].Trim() }
+    }
+    if ($milestone -and $buildId) {
+        $iniText = Get-Content $packagedIni -Raw
+        $iniText = $iniText -replace '(?m)^Version=.*$', "Version=$milestone"
+        $iniText = $iniText -replace '(?m)^BuildID=.*$', "BuildID=$buildId"
+        Set-Content $packagedIni $iniText -Encoding ascii
+    }
+}
+
 # The window icon, Breached's method: Gecko picks up a window's icon
 # from chrome/icons/default/<window-id>.ico, where <window-id> is the id
 # of the <html> element in seijaku.xhtml ("seijaku-window"). That icon
