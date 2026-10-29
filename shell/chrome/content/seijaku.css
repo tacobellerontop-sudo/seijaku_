@@ -299,6 +299,51 @@ body {
   outline: none;
 }
 
+/* ---- Address suggestions: bookmarks first, then history ---- */
+/* Same geometry as the centred address bar, hanging below the
+   toolbar row. A plain div, so if it ever paints under page content
+   in the shipped engine the fallback is the old behaviour and the
+   fix is a XUL panel instead. */
+#address-suggest {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  top: 100%;
+  width: min(480px, calc(100% - 240px));
+  max-height: 320px;
+  overflow-y: auto;
+  background: var(--bar-bg);
+  border: 1px solid var(--line);
+  border-top: none;
+  z-index: 10;
+}
+#address-suggest[hidden] {
+  display: none;
+}
+.suggest-row {
+  padding: 6px 10px;
+  cursor: default;
+}
+.suggest-row[selected] {
+  background: var(--accent);
+}
+.suggest-row[selected] .suggest-url {
+  color: var(--fg);
+}
+.suggest-title,
+.suggest-url {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.suggest-url {
+  color: var(--muted);
+  font-size: 11px;
+}
+#bookmark-star[bookmarked] {
+  color: var(--accent);
+}
+
 /* ---- Auto-hide chrome: only the red line at the top edge ---- */
 /* The line is hidden unless the mode is on and the bars are hidden.
    The bars collapse with visibility: collapse, which frees their

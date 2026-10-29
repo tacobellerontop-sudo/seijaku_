@@ -1,6 +1,7 @@
 /* Seijaku: a lean browser shell on Gecko. Tabs, an address line, a home
-   page, settings, tab sleeping, auto-update, find, zoom, and themes.
-   Nothing else on purpose: no mods, no extensions host, no accounts,
+   page, settings, tab sleeping, auto-update, find, zoom, themes,
+   bookmarks, history, downloads, and address suggestions. Nothing
+   else on purpose: no mods, no extensions host, no accounts,
    no services, no command bar. See docs/PLAN.md. */
 
 "use strict";
@@ -12,14 +13,19 @@ const Theme = ChromeUtils.importESModule("resource://seijaku/Theme.sys.mjs");
 
 const PREF = "seijaku.";
 const SESSION_FILE = "seijaku-session.json";
+const DATA_FILE = "seijaku-data.json";
+const HISTORY_LIMIT = 1000;
 const MESSAGE_MS = 4000;
-const SEIJAKU_VERSION = "0.2.0";
+const SEIJAKU_VERSION = "0.2.1";
 const UPDATE_REPO = "tacobellerontop-sudo/seijaku_";
 const UPDATE_CHECK_MS = 24 * 60 * 60 * 1000;
 
 const PAGES = {
   "seijaku:home": "chrome://seijaku/content/pages/home.html",
   "seijaku:settings": "chrome://seijaku/content/pages/settings.html",
+  "seijaku:bookmarks": "chrome://seijaku/content/pages/bookmarks.html",
+  "seijaku:history": "chrome://seijaku/content/pages/history.html",
+  "seijaku:downloads": "chrome://seijaku/content/pages/downloads.html",
 };
 
 function realURL(url) {
@@ -73,6 +79,14 @@ var Seijaku = {
   tabs: [],
   selected: null,
   closed: [],
+  // Bookmarks + history, loaded from the profile (null until loaded).
+  _data: null,
+  // The engine's download list, kept by initDownloads.
+  _downloads: [],
+  _downloadsReady: false,
+  // Current address suggestions, if the suggest box is open.
+  _suggestItems: [],
+  _suggestIndex: -1,
   _messageTimer: null,
   _pendingUpdate: null,
   _stagedUpdate: null,
@@ -118,7 +132,12 @@ var Seijaku = {
     document.getElementById("nav-forward").addEventListener("click", () => this.selectedBrowser?.goForward());
     document.getElementById("nav-reload").addEventListener("click", () => this.selectedBrowser?.reload());
     document.getElementById("tab-new").addEventListener("click", () => this.newTab());
+    document.getElementById("tab-undo").addEventListener("click", () => this.undoCloseTab());
+    document.getElementById("bookmark-star").addEventListener("click", () => this.toggleBookmark());
     document.getElementById("toolbar-menu").addEventListener("click", () => this.openPage("settings"));
+    this.loadData();
+    this.initDownloads();
+    this.updateUndoButton();
     this.initAddressBar();
     window.addEventListener("keydown", this, true);
     window.addEventListener("mousemove", this);
@@ -598,6 +617,161 @@ var Seijaku = {
     return this.pref("homepage", "seijaku:home") || "about:blank";
   },
 
+  // -------------------------------------------------------------- bookmarks and history
+  //
+  // One small JSON file in the profile holds both, because the shell
+  // already trusts IOUtils + JSON for the session and because Places
+  // (Firefox's history/bookmark database) is a whole service the
+  // shell deliberately never wakes. Only the user's real visits and
+  // bookmarks are ever in here — nothing is invented, and internal
+  // pages (seijaku:, about:, chrome://) are never recorded. The
+  // manager pages read this through the shell object, the way the
+  // home page already reaches it, so there is exactly one writer.
+
+  dataPath() {
+    try {
+      return PathUtils.join(PathUtils.profileDir, DATA_FILE);
+    } catch (e) {
+      return null;
+    }
+  },
+
+  loadData() {
+    let path = this.dataPath();
+    if (!path) {
+      this._data = { bookmarks: [], history: [] };
+      return;
+    }
+    IOUtils.readJSON(path)
+      .then(data => {
+        this._data = {
+          bookmarks: Array.isArray(data?.bookmarks) ? data.bookmarks : [],
+          history: Array.isArray(data?.history) ? data.history : [],
+        };
+      })
+      .catch(() => {
+        this._data = { bookmarks: [], history: [] };
+      });
+  },
+
+  saveData() {
+    let path = this.dataPath();
+    if (!path || !this._data) {
+      return;
+    }
+    IOUtils.writeJSON(path, this._data).catch(e =>
+      console.error("Seijaku: saving data", e)
+    );
+  },
+
+  getBookmarks() {
+    return (this._data?.bookmarks ?? []).slice().reverse();
+  },
+
+  isBookmarked(url) {
+    return (this._data?.bookmarks ?? []).some(b => b.url == url);
+  },
+
+  toggleBookmark() {
+    let tab = this.selected;
+    if (!tab || !tab.url || tab.url == "about:blank") {
+      this.showMessage("Nothing to bookmark on this tab");
+      return;
+    }
+    if (!this._data) {
+      this._data = { bookmarks: [], history: [] };
+    }
+    let index = this._data.bookmarks.findIndex(b => b.url == tab.url);
+    if (index >= 0) {
+      this._data.bookmarks.splice(index, 1);
+      this.showMessage("Bookmark removed");
+    } else {
+      this._data.bookmarks.push({ url: tab.url, title: tab.title || "", added: Date.now() });
+      this.showMessage("Bookmarked");
+    }
+    this.saveData();
+    this.updateBookmarkStar();
+  },
+
+  removeBookmark(url) {
+    if (!this._data) {
+      return;
+    }
+    this._data.bookmarks = this._data.bookmarks.filter(b => b.url != url);
+    this.saveData();
+    this.updateBookmarkStar();
+  },
+
+  getHistory() {
+    return (this._data?.history ?? []).slice().reverse();
+  },
+
+  clearHistory() {
+    if (!this._data) {
+      return;
+    }
+    this._data.history = [];
+    this.saveData();
+  },
+
+  recordHistory(url, title = "") {
+    // Internal pages are never history: the home page, settings,
+    // and the browser's own pages would otherwise drown real visits.
+    if (!url || url == "about:blank" || /^(seijaku|about|chrome):/.test(url)) {
+      return;
+    }
+    if (!this._data) {
+      this._data = { bookmarks: [], history: [] };
+    }
+    let last = this._data.history[this._data.history.length - 1];
+    if (last && last.url == url) {
+      if (title) {
+        last.title = title;
+      }
+      last.at = Date.now();
+      this.saveData();
+      return;
+    }
+    this._data.history.push({ url, title, at: Date.now() });
+    if (this._data.history.length > HISTORY_LIMIT) {
+      this._data.history.splice(0, this._data.history.length - HISTORY_LIMIT);
+    }
+    this.saveData();
+  },
+
+  recordHistoryTitle(url, title) {
+    if (!this._data || !title) {
+      return;
+    }
+    // Titles arrive after the address does, so the newest entry for
+    // this address gets the title when it shows up.
+    for (let i = this._data.history.length - 1; i >= 0; i--) {
+      if (this._data.history[i].url == url) {
+        this._data.history[i].title = title;
+        this.saveData();
+        return;
+      }
+    }
+  },
+
+  updateBookmarkStar() {
+    let star = document.getElementById("bookmark-star");
+    if (!star) {
+      return;
+    }
+    let marked = !!(this.selected?.url && this.isBookmarked(this.selected.url));
+    star.textContent = marked ? "★" : "☆";
+    star.toggleAttribute("bookmarked", marked);
+    star.title = marked ? "Remove bookmark (Ctrl+D)" : "Bookmark this page (Ctrl+D)";
+  },
+
+  updateUndoButton() {
+    let button = document.getElementById("tab-undo");
+    if (button) {
+      button.disabled = this.closed.length == 0;
+    }
+  },
+
   // -------------------------------------------------------------- launched links
   //
   // Why a default-browser link used to land on the home page: the
@@ -676,13 +850,183 @@ var Seijaku = {
     return tab;
   },
 
+  // -------------------------------------------------------------- downloads
+  //
+  // The downloads page shows the engine's own download list, not a
+  // second store: Downloads.jsm already tracks every download the
+  // browser starts, so the page just renders what it reports. If the
+  // module is missing in the shipped engine, the page says so and
+  // nothing else breaks — downloads still land in the folder, the
+  // way the prefs already arrange.
+
+  async initDownloads() {
+    try {
+      let { Downloads } = ChromeUtils.importESModule(
+        "resource://gre/modules/Downloads.sys.mjs"
+      );
+      let list = await Downloads.getList(Downloads.PUBLIC);
+      this._downloads = [];
+      this._downloadsReady = true;
+      let keyFor = dl => {
+        let path = "";
+        try {
+          path = dl.target?.path || "";
+        } catch (e) { /* key stays path-less */ }
+        let started = 0;
+        try {
+          started = dl.startTime?.getTime?.() ?? 0;
+        } catch (e) { /* key stays time-less */ }
+        return path + "|" + started;
+      };
+      await list.addView({
+        onDownloadAdded: dl => {
+          let key = keyFor(dl);
+          if (!this._downloads.some(e => e.key == key)) {
+            this._downloads.unshift(this.downloadData(dl, key));
+          }
+        },
+        onDownloadChanged: dl => {
+          let entry = this._downloads.find(e => e.key == keyFor(dl));
+          if (entry) {
+            Object.assign(entry, this.downloadData(dl, entry.key));
+          }
+        },
+        onDownloadRemoved: dl => {
+          let key = keyFor(dl);
+          this._downloads = this._downloads.filter(e => e.key != key);
+        },
+      });
+      // A view is told about downloads already in the list, but
+      // enumerating once as well costs nothing and covers a view
+      // that reports only new arrivals.
+      let existing = await list.getAll();
+      for (let dl of existing) {
+        let key = keyFor(dl);
+        if (!this._downloads.some(e => e.key == key)) {
+          this._downloads.push(this.downloadData(dl, key));
+        }
+      }
+    } catch (e) {
+      this._downloadsReady = false;
+    }
+  },
+
+  downloadData(dl, key) {
+    let name = "";
+    let path = "";
+    try {
+      path = dl.target?.path || "";
+      name = path.split(/[\\/]/).pop() || "";
+    } catch (e) { /* name stays empty */ }
+    let state = "downloading";
+    try {
+      if (dl.succeeded) {
+        state = "finished";
+      } else if (dl.canceled) {
+        state = "cancelled";
+      } else if (dl.error) {
+        state = "failed";
+      }
+    } catch (e) { /* keep downloading */ }
+    let progress = 0;
+    let current = 0;
+    let total = -1;
+    try {
+      progress = Math.round(dl.progress ?? 0);
+      current = dl.currentBytes ?? 0;
+      total = dl.totalBytes ?? -1;
+    } catch (e) { /* sizes stay unknown */ }
+    // The live object stays on the entry so actions can reach it;
+    // getDownloads strips it before anything crosses to a page.
+    return { key, dl, name, path, state, progress, current, total };
+  },
+
+  downloadsReady() {
+    return !!this._downloadsReady;
+  },
+
+  /** Plain data for the downloads page (no engine objects cross over). */
+  getDownloads() {
+    return (this._downloads ?? []).map(({ dl, ...plain }) => plain);
+  },
+
+  downloadAction(path, action) {
+    let entry = (this._downloads ?? []).find(e => e.path == path);
+    if (!entry) {
+      return;
+    }
+    // The live object is not handed to the page, so the page acts by
+    // path and the shell finds the download again here.
+    let dl = entry.dl;
+    if (!dl) {
+      return;
+    }
+    try {
+      if (action == "cancel") {
+        dl.cancel();
+      } else if (action == "remove") {
+        dl.remove();
+      } else if (action == "open") {
+        // launch() rejects (rather than throwing) when the file is
+        // gone, so a bare call would leave an unhandled rejection.
+        let done = dl.launch();
+        if (done && done.catch) {
+          done.catch(() =>
+            this.showMessage("That file is no longer there", "error")
+          );
+        }
+      } else if (action == "reveal") {
+        let file = Cc["@mozilla.org/file/local;1"].createInstance(Ci.nsIFile);
+        file.initWithPath(entry.path);
+        file.reveal();
+      }
+    } catch (e) {
+      this.showMessage(`Couldn't do that with the download: ${e.message}`, "error");
+    }
+  },
+
   // -------------------------------------------------------------- address
 
   initAddressBar() {
     let input = this.$addressbar;
     input.addEventListener("focus", () => input.select());
+    input.addEventListener("input", () => {
+      this._suggestItems = this.suggestMatches(input.value);
+      this._suggestIndex = -1;
+      this.showSuggest();
+    });
+    input.addEventListener("blur", () => {
+      // Rows listen on mousedown, so they fire before this hides
+      // the box; the timeout only covers clicks elsewhere.
+      setTimeout(() => this.hideSuggest(), 150);
+    });
     input.addEventListener("keydown", event => {
+      if (event.key == "ArrowDown") {
+        this.moveSuggest(1);
+        event.preventDefault();
+        return;
+      }
+      if (event.key == "ArrowUp") {
+        this.moveSuggest(-1);
+        event.preventDefault();
+        return;
+      }
+      if (event.key == "Escape") {
+        this.hideSuggest();
+        return;
+      }
       if (event.key != "Enter") {
+        return;
+      }
+      // A highlighted suggestion beats whatever was typed: Enter
+      // opens it in this tab, the way Enter opens typed text.
+      if (this._suggestIndex >= 0 && this._suggestItems[this._suggestIndex]) {
+        let url = this._suggestItems[this._suggestIndex].url;
+        this.hideSuggest();
+        if (this.selectedBrowser) {
+          this.load(this.selectedBrowser, url);
+          this.selectedBrowser.focus();
+        }
         return;
       }
       let text = input.value.trim();
@@ -703,6 +1047,108 @@ var Seijaku = {
       }
       this.selectedBrowser?.focus();
     });
+  },
+
+  // -------------------------------------------------------------- address suggestions
+  //
+  // As you type, the address bar offers your own bookmarks first,
+  // then your history — substring matches on title or address, newest
+  // first, at most eight. Nothing is fetched and nothing leaves the
+  // machine: the only sources are the local data file. The box is a
+  // plain div under the centred address bar, sized to match it, so
+  // if it ever paints under page content in the shipped engine the
+  // fallback is the old behaviour (typing + Enter still work) and
+  // the fix is a XUL panel instead — a Windows-run question, not a
+  // startup risk.
+
+  suggestMatches(query) {
+    query = query.trim().toLowerCase();
+    if (query.length < 2 || !this._data) {
+      return [];
+    }
+    let seen = new Set();
+    let out = [];
+    let take = list => {
+      for (let item of list) {
+        if (out.length >= 8) {
+          return;
+        }
+        if (seen.has(item.url)) {
+          continue;
+        }
+        let hay = `${item.title || ""} ${item.url}`.toLowerCase();
+        if (hay.includes(query)) {
+          seen.add(item.url);
+          out.push(item);
+        }
+      }
+    };
+    take(this._data.bookmarks.slice().reverse());
+    take(this._data.history.slice().reverse());
+    return out;
+  },
+
+  showSuggest() {
+    let box = document.getElementById("address-suggest");
+    if (!box) {
+      return;
+    }
+    box.replaceChildren();
+    let items = this._suggestItems;
+    if (!items.length) {
+      box.hidden = true;
+      this._suggestIndex = -1;
+      return;
+    }
+    items.forEach((item, i) => {
+      let row = document.createElement("div");
+      row.className = "suggest-row";
+      if (i == this._suggestIndex) {
+        row.setAttribute("selected", "true");
+      }
+      let title = document.createElement("div");
+      title.className = "suggest-title";
+      title.textContent = item.title || item.url;
+      let url = document.createElement("div");
+      url.className = "suggest-url";
+      url.textContent = item.url;
+      row.append(title, url);
+      // Mousedown, not click: clicking would blur the input first
+      // and the box would hide before the click landed.
+      row.addEventListener("mousedown", event => {
+        event.preventDefault();
+        this.hideSuggest();
+        if (this.selectedBrowser) {
+          this.load(this.selectedBrowser, item.url);
+          this.selectedBrowser.focus();
+        }
+      });
+      box.append(row);
+    });
+    box.hidden = false;
+  },
+
+  hideSuggest() {
+    let box = document.getElementById("address-suggest");
+    if (box) {
+      box.hidden = true;
+    }
+    this._suggestIndex = -1;
+    this._suggestItems = [];
+  },
+
+  moveSuggest(delta) {
+    if (!this._suggestItems.length) {
+      return;
+    }
+    if (this._suggestIndex < 0) {
+      this._suggestIndex = delta > 0 ? 0 : this._suggestItems.length - 1;
+    } else {
+      this._suggestIndex =
+        (this._suggestIndex + delta + this._suggestItems.length) % this._suggestItems.length;
+    }
+    this.showSuggest();
+    this.$addressbar.value = this._suggestItems[this._suggestIndex].url;
   },
 
   updateAddressBar() {
@@ -736,6 +1182,7 @@ var Seijaku = {
     document.title = tab ? `${tab.title || tab.url} - Seijaku` : "Seijaku";
     document.getElementById("titlebar-title").textContent = document.title;
     this.updateAddressBar();
+    this.updateBookmarkStar();
   },
 
   /** Turns typed text into a URL: an address, or a search. */
@@ -844,6 +1291,7 @@ var Seijaku = {
         tab.url = displayURL(location.spec);
         tab.title = b.contentTitle || "";
         tab.update();
+        Seijaku.recordHistory(tab.url, tab.title);
         if (tab === Seijaku.selected) {
           Seijaku.updateTitle();
           Seijaku.updateNavButtons();
@@ -863,6 +1311,7 @@ var Seijaku = {
     b.addEventListener("pagetitlechanged", () => {
       tab.title = b.contentTitle || "";
       tab.update();
+      Seijaku.recordHistoryTitle(tab.url, tab.title);
       if (tab === Seijaku.selected) {
         Seijaku.updateTitle();
       }
@@ -953,6 +1402,7 @@ var Seijaku = {
     if (!tab) {
       return;
     }
+    this.hideSuggest();
     let previous = this.selected;
     if (previous && previous !== tab) {
       previous.el.removeAttribute("selected");
@@ -981,6 +1431,7 @@ var Seijaku = {
     if (this.closed.length > 20) {
       this.closed.shift();
     }
+    this.updateUndoButton();
     this.tabs.splice(index, 1);
     tab.el.remove();
     tab.browser?.remove();
@@ -998,6 +1449,7 @@ var Seijaku = {
 
   undoCloseTab() {
     let last = this.closed.pop();
+    this.updateUndoButton();
     if (!last) {
       this.showMessage("Nothing to undo");
       return;
@@ -1257,6 +1709,10 @@ var Keys = {
     ["-", "accel", () => Seijaku.zoom(-0.1)],
     ["0", "accel", () => Seijaku.zoomReset()],
     ["h", "accel,shift", () => Seijaku.toggleChromeAutohide()],
+    ["d", "accel", () => Seijaku.toggleBookmark()],
+    ["h", "accel", () => Seijaku.openPage("history")],
+    ["j", "accel", () => Seijaku.openPage("downloads")],
+    ["b", "accel,shift", () => Seijaku.openPage("bookmarks")],
     ["VK_LEFT", "alt", () => Seijaku.selectedBrowser?.goBack()],
     ["VK_RIGHT", "alt", () => Seijaku.selectedBrowser?.goForward()],
     [",", "accel", () => Seijaku.openPage("settings")],

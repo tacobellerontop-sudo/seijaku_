@@ -1,0 +1,53 @@
+/* Shared by the bookmarks, history and downloads pages: a centred
+   column and plain rows, in the browser's colours. */
+
+main {
+  width: min(640px, 92vw);
+  margin: 0 auto;
+  padding: 40px 0 64px;
+}
+
+h1 {
+  font-family: "Yu Mincho", "MS Mincho", serif;
+  font-size: 28px;
+  font-weight: normal;
+  margin: 0 0 8px;
+}
+
+#search {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 16px 0 8px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.row-main {
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.row-title,
+.row-url {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row-url {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.row-meta {
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}

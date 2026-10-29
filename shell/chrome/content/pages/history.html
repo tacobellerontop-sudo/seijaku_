@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>History</title>
+  <link rel="stylesheet" href="chrome://seijaku/content/pages/pages.css" />
+  <link rel="stylesheet" href="chrome://seijaku/content/pages/lists.css" />
+  <script src="chrome://seijaku/content/pages/theme.js"></script>
+  <script src="chrome://seijaku/content/pages/history.js"></script>
+</head>
+<body>
+  <main>
+    <h1>history</h1>
+    <p class="muted">Pages you actually visited, newest first. Browser pages are never recorded.</p>
+    <input id="search" type="text" spellcheck="false" autocomplete="off"
+           placeholder="Search history…" />
+    <p><button id="clear" type="button">Clear history</button></p>
+    <div id="list"></div>
+    <p id="empty" class="muted" hidden="hidden">Nothing here yet — or nothing matches that search.</p>
+  </main>
+</body>
+</html>

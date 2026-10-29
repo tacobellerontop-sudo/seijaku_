@@ -36,6 +36,7 @@
   </div>
   <div id="tabbar" role="tablist">
     <button id="tab-new" class="tab-new" title="New tab (Ctrl+T)" tabindex="-1">+</button>
+    <button id="tab-undo" class="tab-new" title="Reopen closed tab (Ctrl+Shift+T)" tabindex="-1" disabled="disabled">↩</button>
   </div>
   <div id="toolbar">
     <span id="nav-buttons">
@@ -48,7 +49,9 @@
       <input id="addressbar" type="text" spellcheck="false" autocomplete="off"
              placeholder="Search or type an address" />
     </span>
+    <button id="bookmark-star" class="nav-button" title="Bookmark this page (Ctrl+D)" tabindex="-1">&#x2606;</button>
     <button id="toolbar-menu" class="nav-button" title="Settings (Ctrl+,)" tabindex="-1">&#x22ee;</button>
+    <div id="address-suggest" hidden="hidden"></div>
   </div>
   <div id="content"></div>
   <div id="bottom">
