@@ -21,6 +21,7 @@
         <option value="sakura">Sakura (light pink)</option>
         <option value="ai">Ai (dark indigo)</option>
         <option value="custom">Custom (pick three colours below)</option>
+        <option value="system">System (follow the OS dark/light setting)</option>
       </select>
     </label>
     <div id="setting-custom-theme">
@@ -41,6 +42,15 @@
     <label>
       Put idle tabs to sleep after (minutes, 0 turns it off)
       <input id="setting-sleep" type="number" min="0" max="240" />
+    </label>
+    <label>
+      Tab strip position
+      <select id="setting-tabs-position">
+        <option value="top">Top</option>
+        <option value="bottom">Bottom</option>
+        <option value="left">Left</option>
+        <option value="right">Right</option>
+      </select>
     </label>
     <label>
       Search engine
@@ -65,24 +75,99 @@
       <input id="setting-homepage" type="text" spellcheck="false" />
     </label>
     <label>
+      On startup
+      <select id="setting-startup">
+        <option value="restore">Restore last session</option>
+        <option value="home">Open the home page</option>
+        <option value="blank">Open a blank tab</option>
+      </select>
+    </label>
+    <label>
+      Page font
+      <select id="setting-font-family">
+        <option value="sans-serif">Sans-serif</option>
+        <option value="serif">Serif</option>
+        <option value="monospace">Monospace</option>
+      </select>
+      <span class="muted">Applies to newly loaded pages; reload a page to see it.</span>
+    </label>
+    <label>
+      Page font size (9–32)
+      <input id="setting-font-size" type="number" min="9" max="32" />
+    </label>
+    <h2>privacy</h2>
+    <p class="muted">Tracking protection is the engine's own blocker. For stronger ad blocking, install uBlock Origin from the extensions page — it blocks more, and it is optional here on purpose.</p>
+    <label>
+      Tracking protection
+      <select id="setting-tracking">
+        <option value="strict">Strict — block trackers, fingerprinting, cryptominers, and strip tracking from addresses</option>
+        <option value="standard">Standard — block trackers, leave the rest alone</option>
+        <option value="off">Off — no tracking protection</option>
+      </select>
+    </label>
+    <div class="field">
+      Clear browsing data
+      <p class="muted">Clearing cookies signs you out of sites. Files you downloaded stay where they are.</p>
+      <p>
+        <label class="inline"><input id="clear-history" type="checkbox" checked="checked" /> History</label>
+        <label class="inline"><input id="clear-cookies" type="checkbox" checked="checked" /> Cookies</label>
+        <label class="inline"><input id="clear-cache" type="checkbox" checked="checked" /> Cache</label>
+        <label class="inline"><input id="clear-downloads" type="checkbox" /> Downloads list</label>
+      </p>
+      <button id="setting-clear-data" type="button">Clear selected data</button>
+      <p id="clear-result" class="muted"></p>
+    </div>
+    <h2>weather</h2>
+    <p class="muted">The home page's weather widget, from Open-Meteo (no account, no key). Changing the city re-geocodes it on the next home page load.</p>
+    <label>
+      <input id="setting-weather-enabled" type="checkbox" />
+      Show weather on the home page
+    </label>
+    <label>
+      Weather city
+      <input id="setting-weather-city" type="text" spellcheck="false" />
+    </label>
+    <label>
       <input id="setting-update" type="checkbox" />
       Check for updates on startup (at most once a day; a newer version downloads in the background and installs when you quit)
     </label>
     <label>
       <input id="setting-permissions-allow" type="checkbox" />
       Allow sites to use the camera, microphone and notifications without asking
-      <span class="muted">Off by default. When on, any site that asks gets access at once, with no prompt and no device choice. Location still needs a real prompt UI, which the shipped engine cannot yet register — see the release notes.</span>
+      <span class="muted">Off by default. When on, any site that asks gets access at once, with no prompt and no device choice. Location is always denied — Seijaku never asks for it.</span>
     </label>
     <label>
       <input id="setting-autohide" type="checkbox" />
-      Auto-hide the top bars — only the red line stays at the top edge
-      <span class="muted">Move the mouse to the very top edge to bring the bars back; moving onto the page hides them again. Ctrl+Shift+H flips this setting.</span>
+      Auto-hide the strip — only the red line stays at its edge
+      <span class="muted">Move the mouse to the strip's edge (the red line) to bring it back; moving onto the page hides it again. Ctrl+Shift+H flips this setting.</span>
     </label>
     <label>
       Updates
       <button id="setting-update-now" type="button">Update Seijaku now</button>
       <span class="muted">Checks GitHub, downloads the installer, and restarts Seijaku on the new version.</span>
     </label>
+    <h2>shortcuts</h2>
+    <p class="muted">Every shortcut Seijaku answers.</p>
+    <ul>
+      <li>Ctrl+T — new tab, with the floating bar open</li>
+      <li>Ctrl+L — floating bar for this tab</li>
+      <li>Ctrl+K — command palette (commands, tabs, bookmarks)</li>
+      <li>Ctrl+W — close tab</li>
+      <li>Ctrl+Shift+T — reopen closed tab</li>
+      <li>Ctrl+Shift+N — private window</li>
+      <li>Ctrl+Shift+S — sleep this tab now</li>
+      <li>Ctrl+Shift+P — pin or unpin this tab</li>
+      <li>Ctrl+Shift+H — hide or show the strip</li>
+      <li>Ctrl+D — bookmark this page</li>
+      <li>Ctrl+Shift+B — bookmarks</li>
+      <li>Ctrl+H — history</li>
+      <li>Ctrl+J — downloads</li>
+      <li>Ctrl+F — find in page</li>
+      <li>Ctrl+= / Ctrl+− / Ctrl+0 — zoom in, out, reset</li>
+      <li>Ctrl+R — reload</li>
+      <li>Alt+Left / Alt+Right — back, forward</li>
+      <li>Ctrl+, — settings</li>
+    </ul>
     <p id="saved" class="muted" hidden="hidden">Saved.</p>
   </main>
 </body>

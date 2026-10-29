@@ -4,7 +4,9 @@
    setting (ink dark by default, paper light); seijaku.js sets them.
    Type is Japanese-first: Yu Gothic for the interface, Yu Mincho serif
    for the seal and other kanji, the way Ryoku pairs Japanese type with
-   Latin. Warm ink, not cold blue-grey. */
+   Latin. Warm ink, not cold blue-grey.
+   There is no persistent address bar: the strip below is the whole
+   chrome, and a floating panel (Ctrl+T / Ctrl+L) is the address bar. */
 
 :root {
   --font: "Yu Gothic UI", "Yu Gothic", "Meiryo", sans-serif;
@@ -17,11 +19,8 @@
   --muted: #9a9082;
   --line: #2e2620;
   --error: #e07b7b;
-  /* Compact chrome: titlebar/tab row + address line = 56px total,
-     down from 74px, so more of the window is page. */
-  --tabbar-height: 28px;
-  --toolbar-height: 28px;
-  --titlebar-height: 28px;
+  /* The strip: one row tall across the top, 200px wide down a side. */
+  --strip-width: 200px;
   --message-height: 20px;
 
   height: 100%;
@@ -37,20 +36,45 @@ body {
   flex-direction: column;
   overflow: hidden;
 }
+:root[tabs-position="left"] body,
+:root[tabs-position="right"] body {
+  flex-direction: row;
+}
 
-/* ---- Title bar: the seal, then the window title (or the tabs, when
-   the tab strip shares this row is not a thing here: tabs have their
-   own row, always, so this row stays quiet) ---- */
-#titlebar {
-  order: 0;
+/* ---- The strip: seal, nav, tabs, actions, drag space, window
+   buttons. One row across the top by default; a column down the
+   side for left/right. The strip itself is the title bar (there is
+   no separate title row any more), so its background is draggable
+   and every control on it opts out. ---- */
+#strip {
   flex: none;
   display: flex;
-  height: var(--titlebar-height);
   align-items: stretch;
-  -moz-window-dragging: drag;
+  background: var(--bar-bg);
+  border-bottom: 1px solid var(--line);
   user-select: none;
+  -moz-window-dragging: drag;
 }
-:root[sizemode="fullscreen"] #titlebar {
+:root[tabs-position="bottom"] #strip {
+  order: 2;
+  border-bottom: none;
+  border-top: 1px solid var(--line);
+}
+:root[tabs-position="left"] #strip {
+  order: 0;
+  flex-direction: column;
+  width: var(--strip-width);
+  border-bottom: none;
+  border-right: 1px solid var(--line);
+}
+:root[tabs-position="right"] #strip {
+  order: 2;
+  flex-direction: column;
+  width: var(--strip-width);
+  border-bottom: none;
+  border-left: 1px solid var(--line);
+}
+:root[sizemode="fullscreen"] #strip {
   display: none;
 }
 #seal {
@@ -59,31 +83,64 @@ body {
   align-items: center;
   padding-inline: 8px 2px;
   font-family: var(--serif);
-  /* The same size as the tab words beside it, so the seal sits on the
-     same baseline instead of looming over the strip. */
   font-size: 12px;
   color: var(--accent);
 }
-#titlebar-content {
-  flex: 1;
-  min-width: 0;
+:root[tabs-position="left"] #seal,
+:root[tabs-position="right"] #seal {
+  padding: 8px 8px 2px;
+}
+#nav-buttons {
+  flex: none;
   display: flex;
   align-items: center;
-  padding-inline-start: 8px;
+  gap: 2px;
+  -moz-window-dragging: no-drag;
 }
-#titlebar-title {
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  color: var(--muted);
-  font-size: 12px;
+#strip-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  -moz-window-dragging: no-drag;
 }
-:root:-moz-window-inactive #titlebar-title {
-  opacity: 0.6;
+:root[tabs-position="left"] #strip-actions,
+:root[tabs-position="right"] #strip-actions {
+  /* Actions sit at the bottom of a side strip. */
+  margin-top: auto;
+  flex-wrap: wrap;
+  padding: 4px 6px;
+}
+#strip-drag {
+  flex: 1;
+  min-width: 0;
+}
+:root[tabs-position="left"] #strip-drag,
+:root[tabs-position="right"] #strip-drag {
+  display: none;
+}
+#private-badge {
+  flex: none;
+  align-self: center;
+  color: var(--accent);
+  font-family: var(--serif);
+  font-style: italic;
+  padding-inline: 8px;
+}
+#private-badge[hidden] {
+  display: none;
+}
+:root[private="true"] #private-badge {
+  display: block;
 }
 #titlebar-buttons {
   display: flex;
   -moz-window-dragging: no-drag;
+}
+:root[tabs-position="left"] #titlebar-buttons,
+:root[tabs-position="right"] #titlebar-buttons {
+  justify-content: flex-end;
+  padding-bottom: 2px;
 }
 .titlebar-button {
   appearance: none;
@@ -132,42 +189,27 @@ body {
   display: none;
 }
 
-/* ---- Tabs in the title bar row (moved there by seijaku.js). The
-   row stays quiet: seal, tab words, window buttons, nothing else.
-   The standalone rules below are the fallback if the move fails. ---- */
-#titlebar-content {
-  align-items: stretch;
-}
-#titlebar-content > #tabbar {
-  flex: 1;
-  height: auto;
-  border-bottom: none;
-  -moz-window-dragging: drag;
-}
-#titlebar-content > #tabbar .tab,
-#titlebar-content > #tabbar .tab-new {
-  -moz-window-dragging: no-drag;
-}
-#titlebar-title[hidden] {
-  display: none;
-}
-
-/* ---- Tab strip: words, not boxes. The selected tab gets one
-   vermilion underline and nothing else. ---- */
+/* ---- Tabs: words, not boxes. The selected tab gets one vermilion
+   underline and nothing else. Horizontal: tabs fit their names and
+   truncate at 240px. Vertical: tabs stack, full width, and the
+   selected one gets a vermilion edge instead. ---- */
 #tabbar {
-  order: 1;
   display: flex;
   flex: none;
-  height: var(--tabbar-height);
   align-items: stretch;
   overflow: hidden;
   user-select: none;
-  border-bottom: 1px solid var(--line);
+  -moz-window-dragging: drag;
+}
+:root[tabs-position="left"] #tabbar,
+:root[tabs-position="right"] #tabbar {
+  flex: 1 1 auto;
+  flex-direction: column;
+  overflow-x: hidden;
+  overflow-y: auto;
+  min-height: 0;
 }
 .tab {
-  /* Tabs fit their names: no growing to fill the strip. They shrink
-     (and truncate with an ellipsis at 240px) only when the strip runs
-     out of room, so the + button sits right after the last tab. */
   flex: 0 1 auto;
   min-width: 0;
   max-width: 240px;
@@ -179,13 +221,28 @@ body {
   cursor: default;
   color: var(--muted);
   border-bottom: 2px solid transparent;
+  -moz-window-dragging: no-drag;
   /* GPU-cheap animation, on purpose: only colour and the underline
      move, never layout. Nothing here reflows the strip. */
   transition: color 0.15s ease, border-color 0.15s ease;
 }
+:root[tabs-position="left"] .tab,
+:root[tabs-position="right"] .tab {
+  max-width: none;
+  width: 100%;
+  box-sizing: border-box;
+  border-bottom: none;
+  border-left: 2px solid transparent;
+  padding-block: 5px;
+}
 .tab[selected] {
   color: var(--tab-selected-fg);
   border-bottom-color: var(--accent);
+}
+:root[tabs-position="left"] .tab[selected],
+:root[tabs-position="right"] .tab[selected] {
+  border-bottom-color: transparent;
+  border-left-color: var(--accent);
 }
 .tab[asleep] {
   font-style: italic;
@@ -193,9 +250,57 @@ body {
 .tab[asleep] .tab-label {
   opacity: 0.6;
 }
+/* Loading: the label dims and a vermilion dot pulses at the tab's
+   edge. It clears on every finish — success or error — because the
+   progress listener removes "busy" on STATE_STOP either way. */
+.tab[busy] .tab-label {
+  opacity: 0.55;
+}
+.tab[busy]::before {
+  content: "";
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: seijaku-pulse 1s ease-in-out infinite;
+}
+@keyframes seijaku-pulse {
+  50% {
+    opacity: 0.25;
+  }
+}
+/* Pinned: a vermilion dot, and a heavily truncated title on a
+   horizontal strip (a side strip is already narrow, so the dot
+   alone marks it there). */
+.tab[pinned]::before {
+  content: "";
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+:root[tabs-position="top"] .tab[pinned] .tab-label,
+:root[tabs-position="bottom"] .tab[pinned] .tab-label {
+  max-width: 40px;
+}
 .tab-label {
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.tab-speaker {
+  display: none;
+  flex: none;
+  font-size: 11px;
+  cursor: pointer;
+}
+.tab[sound] .tab-speaker,
+.tab[muted] .tab-speaker {
+  display: inline;
+}
+.tab[muted] .tab-speaker {
+  opacity: 0.4;
 }
 .tab-new {
   appearance: none;
@@ -211,41 +316,6 @@ body {
 }
 .tab-new:hover {
   color: var(--fg);
-}
-
-/* ---- Address line: a line, not a box ---- */
-#toolbar {
-  order: 2;
-  display: flex;
-  flex: none;
-  height: var(--toolbar-height);
-  align-items: center;
-  gap: 6px;
-  padding-inline: 6px;
-  user-select: none;
-  border-bottom: 1px solid var(--line);
-  position: relative;
-}
-/* The address bar itself is centred and smaller: it sits in the
-   middle of the toolbar instead of stretching edge to edge, so the
-   nav buttons stay left and the menu stays right. Absolute centring
-   (not auto margins) keeps it truly centred even though the left
-   button group is wider than the menu button. The 240px reserve is
-   wider than both button groups, so the bar never overlaps them. */
-#address-wrap {
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
-  width: min(480px, calc(100% - 240px));
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-/* The centred bar is out of the flex flow now, so nothing pushes the
-   menu right any more — it needs its own auto margin, or it drifts
-   left next to the reload button. */
-#toolbar-menu {
-  margin-left: auto;
 }
 .nav-button {
   appearance: none;
@@ -263,8 +333,6 @@ body {
   height: 24px;
   cursor: pointer;
   -moz-window-dragging: no-drag;
-}
-.nav-button {
   transition: color 0.15s ease;
 }
 .nav-button:hover:not(:disabled) {
@@ -273,101 +341,156 @@ body {
 .nav-button:disabled {
   opacity: 0.35;
 }
-#address-lock {
-  flex: none;
-  font-size: 13px;
-  color: var(--muted);
-}
-#addressbar {
-  flex: 1;
-  min-width: 0;
-  border: none;
-  border-bottom: 1px solid var(--accent);
-  outline: none;
-  background: transparent;
-  color: var(--fg);
-  font: inherit;
-  padding: 0 0 2px;
-}
-#addressbar::placeholder {
-  color: var(--muted);
-  font-family: var(--serif);
-  font-style: italic;
-}
-#addressbar:focus {
-  /* The line under the whole toolbar is the focus mark; nothing extra. */
-  outline: none;
-}
-
-/* ---- Address suggestions: bookmarks first, then history ---- */
-/* Same geometry as the centred address bar, hanging below the
-   toolbar row. A plain div, so if it ever paints under page content
-   in the shipped engine the fallback is the old behaviour and the
-   fix is a XUL panel instead. */
-#address-suggest {
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
-  top: 100%;
-  width: min(480px, calc(100% - 240px));
-  max-height: 320px;
-  overflow-y: auto;
-  background: var(--bar-bg);
-  border: 1px solid var(--line);
-  border-top: none;
-  z-index: 10;
-}
-#address-suggest[hidden] {
-  display: none;
-}
-.suggest-row {
-  padding: 6px 10px;
-  cursor: default;
-}
-.suggest-row[selected] {
-  background: var(--accent);
-}
-.suggest-row[selected] .suggest-url {
-  color: var(--fg);
-}
-.suggest-title,
-.suggest-url {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.suggest-url {
-  color: var(--muted);
-  font-size: 11px;
-}
 #bookmark-star[bookmarked] {
   color: var(--accent);
 }
-
-/* ---- Auto-hide chrome: only the red line at the top edge ---- */
-/* The line is hidden unless the mode is on and the bars are hidden.
-   The bars collapse with visibility: collapse, which frees their
-   space in a flex column — no height animation, no reflow cost
-   beyond the one collapse. The mode is off by default. */
-#edge-line {
+#perm-lock[hidden] {
   display: none;
-  order: -1;
-  flex: none;
-  height: 2px;
-  background: var(--accent);
 }
-:root[autohide="true"][chrome-hidden="true"] #edge-line {
+#perm-lock {
+  color: var(--accent);
+}
+/* Connection security: same shape as the permission lock, a
+   different meaning — secure is the lock, anything else on the web
+   is the warning mark, and internal pages show nothing at all. */
+#sec-lock[hidden] {
+  display: none;
+}
+#ext-buttons {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+#ext-buttons:empty {
+  display: none;
+}
+.ext-button {
+  appearance: none;
+  border: none;
+  background: transparent;
+  padding: 0 3px;
+  cursor: pointer;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+  -moz-window-dragging: no-drag;
+}
+.ext-button:hover {
+  color: var(--fg);
+}
+.ext-button img {
+  width: 16px;
+  height: 16px;
   display: block;
 }
-:root[autohide="true"][chrome-hidden="true"] #titlebar,
-:root[autohide="true"][chrome-hidden="true"] #tabbar,
-:root[autohide="true"][chrome-hidden="true"] #toolbar {
-  visibility: collapse;
+
+/* ---- Auto-hide chrome: only the reveal strip at the placement edge.
+   The old design hid the bars but left the reveal line INSIDE the
+   hidden container, where it could never take a mouse event — and
+   relied on window mousemove, which content never delivers. The
+   strip below lives OUTSIDE the hidden chrome, always hit-testable,
+   with a generous 8px target and a 2px vermilion line as its mark.
+   The strip itself hides with display: none, which frees its space
+   on every edge. The mode is off by default. ---- */
+#edge-strip {
+  display: none;
+  position: fixed;
+  z-index: 5;
+}
+#edge-strip::after {
+  content: "";
+  position: absolute;
+  background: var(--accent);
+}
+:root[autohide="true"][chrome-hidden="true"] #edge-strip {
+  display: block;
+}
+/* display: none, not visibility: collapse: collapse on a flex item
+   keeps its space in a row layout, which would leave a 200px blank
+   strip on the side placements. display: none frees the space on
+   every edge. */
+:root[autohide="true"][chrome-hidden="true"] #strip {
+  display: none;
+}
+/* Top (the default): a strip across the very top edge. */
+:root[tabs-position="top"] #edge-strip {
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 8px;
+}
+:root[tabs-position="top"] #edge-strip::after {
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+}
+:root[tabs-position="bottom"] #edge-strip {
+  top: auto;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 8px;
+}
+:root[tabs-position="bottom"] #edge-strip::after {
+  top: auto;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+}
+:root[tabs-position="left"] #edge-strip {
+  top: 0;
+  bottom: 0;
+  left: 0;
+  right: auto;
+  width: 8px;
+  height: auto;
+}
+:root[tabs-position="left"] #edge-strip::after {
+  top: 0;
+  bottom: 0;
+  left: 0;
+  right: auto;
+  width: 2px;
+  height: auto;
+}
+:root[tabs-position="right"] #edge-strip {
+  top: 0;
+  bottom: 0;
+  left: auto;
+  right: 0;
+  width: 8px;
+  height: auto;
+}
+:root[tabs-position="right"] #edge-strip::after {
+  top: 0;
+  bottom: 0;
+  left: auto;
+  right: 0;
+  width: 2px;
+  height: auto;
 }
 
 /* ---- Pages ---- */
+#main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+:root[tabs-position="bottom"] #main {
+  order: 1;
+}
+:root[tabs-position="left"] #main {
+  order: 1;
+}
+:root[tabs-position="right"] #main {
+  order: 0;
+}
 #content {
-  order: 3;
   flex: 1;
   display: grid;
   min-height: 0;
@@ -385,7 +508,6 @@ body {
 
 /* ---- Bottom: the message line (hidden by default) ---- */
 #bottom {
-  order: 4;
   flex: none;
 }
 #message {
@@ -431,10 +553,255 @@ body {
   color: #fff;
 }
 
+/* ---- Floating panels: XUL panels, so they render above page
+   content. A plain div did not reliably do that. ---- */
+#urlbar-panel,
+#perm-panel {
+  padding: 0;
+  background: var(--bar-bg);
+  color: var(--fg);
+  border: 1px solid var(--line);
+}
+#urlbar-panel {
+  width: min(560px, 90vw);
+}
+#urlbar-inner {
+  padding: 10px 12px;
+}
+#urlbar-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+#urlbar-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  border-bottom: 1px solid var(--accent);
+  outline: none;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 14px;
+  padding: 0 0 4px;
+}
+#urlbar-input::placeholder {
+  color: var(--muted);
+  font-family: var(--serif);
+  font-style: italic;
+}
+.urlbar-tool {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+.urlbar-tool:hover {
+  color: var(--fg);
+  border-color: var(--muted);
+}
+#urlbar-suggest {
+  max-height: 320px;
+  overflow-y: auto;
+  margin-top: 8px;
+}
+#urlbar-suggest[hidden] {
+  display: none;
+}
+.suggest-row {
+  padding: 6px 10px;
+  cursor: default;
+}
+.suggest-row[selected] {
+  background: var(--accent);
+}
+.suggest-row[selected] .suggest-url {
+  color: var(--fg);
+}
+.suggest-title,
+.suggest-url {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.suggest-url {
+  color: var(--muted);
+  font-size: 11px;
+}
+#perm-panel {
+  width: 360px;
+}
+#perm-inner {
+  padding: 12px 14px;
+}
+#perm-text {
+  margin-bottom: 10px;
+  line-height: 1.5;
+}
+#perm-remember-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+#perm-buttons {
+  display: flex;
+  gap: 8px;
+}
+#perm-buttons button,
+#perm-manage-close {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  padding: 5px 14px;
+  cursor: pointer;
+}
+#perm-buttons button:hover,
+#perm-manage-close:hover {
+  border-color: var(--muted);
+}
+#perm-manage[hidden] {
+  display: none;
+}
+#perm-manage-title {
+  margin-bottom: 8px;
+}
+.perm-manage-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 0;
+}
+.perm-manage-row button {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+/* Site information: the permission panel's shape, reused. */
+#site-panel {
+  padding: 0;
+  background: var(--bar-bg);
+  color: var(--fg);
+  border: 1px solid var(--line);
+  width: 360px;
+}
+#site-inner {
+  padding: 12px 14px;
+}
+#site-host {
+  font-family: var(--serif);
+  font-size: 15px;
+  margin-bottom: 6px;
+}
+#site-state {
+  line-height: 1.5;
+  margin-bottom: 10px;
+}
+#site-perms {
+  margin-bottom: 10px;
+}
+#site-buttons {
+  display: flex;
+  gap: 8px;
+}
+#site-buttons button {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  padding: 5px 14px;
+  cursor: pointer;
+}
+#site-buttons button:hover {
+  border-color: var(--muted);
+}
+/* Command palette: the floating bar's shape, with a kind tag
+   (Command / Tab / Bookmark) ahead of each entry. */
+#palette-panel {
+  padding: 0;
+  background: var(--bar-bg);
+  color: var(--fg);
+  border: 1px solid var(--line);
+  width: min(560px, 90vw);
+}
+#palette-inner {
+  padding: 10px 12px;
+}
+#palette-input {
+  width: 100%;
+  box-sizing: border-box;
+  border: none;
+  border-bottom: 1px solid var(--accent);
+  outline: none;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 14px;
+  padding: 0 0 4px;
+}
+#palette-input::placeholder {
+  color: var(--muted);
+  font-family: var(--serif);
+  font-style: italic;
+}
+#palette-list {
+  max-height: 320px;
+  overflow-y: auto;
+  margin-top: 8px;
+}
+#palette-list[hidden] {
+  display: none;
+}
+.palette-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 6px 10px;
+  cursor: default;
+}
+.palette-row[selected] {
+  background: var(--accent);
+}
+.palette-kind {
+  flex: none;
+  color: var(--muted);
+  font-size: 11px;
+  width: 64px;
+}
+.palette-row[selected] .palette-kind {
+  color: var(--fg);
+}
+.palette-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#ext-popup-panel {
+  padding: 0;
+  background: var(--bar-bg);
+  border: 1px solid var(--line);
+}
+#ext-popup-browser {
+  width: 360px;
+  height: 480px;
+}
+
 /* Page fullscreen (videos): only the page. */
-:root[inDOMFullscreen] #titlebar,
-:root[inDOMFullscreen] #tabbar,
-:root[inDOMFullscreen] #toolbar,
+:root[inDOMFullscreen] #strip,
 :root[inDOMFullscreen] #bottom {
   display: none;
 }

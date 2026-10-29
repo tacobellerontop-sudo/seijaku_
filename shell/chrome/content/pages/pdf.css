@@ -1,0 +1,107 @@
+/* PDF viewer page, in Seijaku's colours (see pages.css).
+   Pages stack vertically; each page canvas has an annotation
+   overlay canvas positioned exactly over it at the same CSS size. */
+
+#topbar,
+#toolbar {
+  position: sticky;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: var(--bar-bg);
+  border-bottom: 1px solid var(--line);
+  z-index: 10;
+}
+
+#topbar {
+  top: 0;
+}
+
+#toolbar {
+  top: 33px;
+  flex-wrap: wrap;
+}
+
+#filename {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 45vw;
+}
+
+.quiet {
+  font-family: "Yu Mincho", "MS Mincho", serif;
+  font-style: italic;
+  color: var(--muted);
+}
+
+.spacer {
+  flex: 1;
+}
+
+.sep {
+  width: 1px;
+  align-self: stretch;
+  background: var(--line);
+}
+
+#indicator,
+#zoom-label {
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.tool.active,
+.swatch.active {
+  outline: 1px solid var(--accent);
+  outline-offset: 0;
+  border-color: var(--accent);
+}
+
+.swatch {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 50%;
+  vertical-align: middle;
+}
+
+#status,
+#error {
+  width: min(640px, 92vw);
+  margin: 24px auto;
+  text-align: center;
+}
+
+.error {
+  color: var(--error);
+}
+
+#pages {
+  width: fit-content;
+  max-width: 100%;
+  margin: 0 auto;
+  padding: 16px 0 64px;
+}
+
+.page-wrap {
+  position: relative;
+  margin: 0 auto 16px;
+  box-shadow: 0 0 0 1px var(--line);
+  touch-action: none;
+}
+
+.page-canvas,
+.annot-canvas {
+  display: block;
+}
+
+.annot-canvas {
+  position: absolute;
+  left: 0;
+  top: 0;
+  cursor: crosshair;
+}

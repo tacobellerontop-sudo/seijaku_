@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Extensions</title>
+  <link rel="stylesheet" href="chrome://seijaku/content/pages/pages.css" />
+  <link rel="stylesheet" href="chrome://seijaku/content/pages/lists.css" />
+  <link rel="stylesheet" href="chrome://seijaku/content/pages/extensions.css" />
+  <script src="chrome://seijaku/content/pages/theme.js"></script>
+  <script src="chrome://seijaku/content/pages/extensions.js"></script>
+</head>
+<body>
+  <main>
+    <h1>extensions</h1>
+    <p class="muted">Extensions run in Seijaku now. Install .xpi files (the Firefox format) with the button below. .crx files (the Chrome format) are NOT supported, because they cannot run in Gecko — that refusal is deliberate, not a bug. An extension with a toolbar button shows its button in the tab strip (the shell renders it). Extension behaviour can only be fully proven on Windows.</p>
+    <p><button id="install" type="button">Install from file…</button></p>
+    <p id="error" class="ext-error" hidden="hidden"></p>
+    <p id="status" class="muted" hidden="hidden"></p>
+    <div id="list"></div>
+    <p id="empty" class="muted" hidden="hidden">No extensions installed yet. Use “Install from file…” to add a .xpi file.</p>
+  </main>
+</body>
+</html>

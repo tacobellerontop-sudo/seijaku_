@@ -16,6 +16,27 @@ label {
   margin-top: 20px;
 }
 
+.field {
+  display: block;
+  margin-top: 20px;
+}
+
+.field p {
+  margin: 6px 0;
+}
+
+label.inline {
+  display: inline-block;
+  margin: 0 12px 0 0;
+}
+
+h2 {
+  font-family: "Yu Mincho", "MS Mincho", serif;
+  font-size: 20px;
+  font-weight: normal;
+  margin: 32px 0 0;
+}
+
 label input,
 label select,
 label button {

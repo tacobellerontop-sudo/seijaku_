@@ -1,6 +1,9 @@
 <?xml version="1.0"?>
-<!-- Seijaku: the whole window. One tab strip, one address line, one page.
-     Tabs and pages are added by seijaku.js. -->
+<!-- Seijaku: the whole window. One tab strip, one page, and floating
+     panels (the URL bar, the permission prompt, extension popups)
+     that appear over the page only when asked. There is no persistent
+     address bar: Ctrl+T / Ctrl+L summon the floating bar. Tabs and
+     pages are added by seijaku.js. -->
 <!DOCTYPE html>
 <html id="seijaku-window"
       xmlns="http://www.w3.org/1999/xhtml"
@@ -19,14 +22,31 @@
   <script src="chrome://seijaku/content/seijaku.js"></script>
 </head>
 <body>
-  <!-- The auto-hide line: the only top chrome left when the bars are
-       hidden. See the auto-hide section in seijaku.css. -->
-  <div id="edge-line"></div>
-  <div id="titlebar">
+  <!-- The whole chrome row: seal, nav, tabs, actions, drag space,
+       window buttons. Its edge (top/left/right/bottom) is set by
+       seijaku.tabs.position; the CSS lays it out per edge. -->
+  <div id="strip">
     <span id="seal" title="Seijaku">&#x7c21;</span>
-    <div id="titlebar-content">
-      <span id="titlebar-title">Seijaku</span>
-    </div>
+    <span id="nav-buttons">
+      <button id="nav-back" class="nav-button" title="Back (Alt+Left)" tabindex="-1" disabled="disabled">&#x2190;</button>
+      <button id="nav-forward" class="nav-button" title="Forward (Alt+Right)" tabindex="-1" disabled="disabled">&#x2192;</button>
+      <button id="nav-reload" class="nav-button" title="Reload (Ctrl+R)" tabindex="-1">&#x21bb;</button>
+    </span>
+    <div id="tabbar" role="tablist"></div>
+    <span id="strip-actions">
+      <button id="tab-new" class="tab-new" title="New tab (Ctrl+T)" tabindex="-1">+</button>
+      <button id="tab-undo" class="tab-new" title="Reopen closed tab (Ctrl+Shift+T)" tabindex="-1" disabled="disabled">↩</button>
+      <button id="bookmark-star" class="nav-button" title="Bookmark this page (Ctrl+D)" tabindex="-1">&#x2606;</button>
+      <!-- Connection security (this strip button), kept apart from
+           the permission lock: this is whether the connection is
+           trustworthy, that is what the site may use. -->
+      <button id="sec-lock" class="nav-button" title="Connection security" tabindex="-1" hidden="hidden">&#x1f512;</button>
+      <span id="ext-buttons"></span>
+      <button id="perm-lock" class="nav-button" title="Site permissions for this site" tabindex="-1" hidden="hidden">&#x1f512;</button>
+      <button id="strip-menu" class="nav-button" title="Settings (Ctrl+,)" tabindex="-1">&#x22ee;</button>
+    </span>
+    <span id="strip-drag"></span>
+    <span id="private-badge" hidden="hidden">Private</span>
     <div id="titlebar-buttons">
       <button id="titlebar-min" class="titlebar-button" title="Minimize" tabindex="-1"></button>
       <button id="titlebar-max" class="titlebar-button" title="Maximize" tabindex="-1"></button>
@@ -34,32 +54,83 @@
       <button id="titlebar-close" class="titlebar-button" title="Close" tabindex="-1"></button>
     </div>
   </div>
-  <div id="tabbar" role="tablist">
-    <button id="tab-new" class="tab-new" title="New tab (Ctrl+T)" tabindex="-1">+</button>
-    <button id="tab-undo" class="tab-new" title="Reopen closed tab (Ctrl+Shift+T)" tabindex="-1" disabled="disabled">↩</button>
-  </div>
-  <div id="toolbar">
-    <span id="nav-buttons">
-      <button id="nav-back" class="nav-button" title="Back (Alt+Left)" tabindex="-1" disabled="disabled">&#x2190;</button>
-      <button id="nav-forward" class="nav-button" title="Forward (Alt+Right)" tabindex="-1" disabled="disabled">&#x2192;</button>
-      <button id="nav-reload" class="nav-button" title="Reload (Ctrl+R)" tabindex="-1">&#x21bb;</button>
-    </span>
-    <span id="address-wrap">
-      <span id="address-lock" title="Connection security">&#x2315;</span>
-      <input id="addressbar" type="text" spellcheck="false" autocomplete="off"
-             placeholder="Search or type an address" />
-    </span>
-    <button id="bookmark-star" class="nav-button" title="Bookmark this page (Ctrl+D)" tabindex="-1">&#x2606;</button>
-    <button id="toolbar-menu" class="nav-button" title="Settings (Ctrl+,)" tabindex="-1">&#x22ee;</button>
-    <div id="address-suggest" hidden="hidden"></div>
-  </div>
-  <div id="content"></div>
-  <div id="bottom">
-    <div id="message" hidden="hidden"></div>
-    <div id="findbar" hidden="hidden">
-      <input id="find-input" type="text" spellcheck="false" autocomplete="off"
-             placeholder="Find in page — Enter for next, Shift+Enter for previous, Esc to close" />
+  <div id="main">
+    <div id="content"></div>
+    <div id="bottom">
+      <div id="message" hidden="hidden"></div>
+      <div id="findbar" hidden="hidden">
+        <input id="find-input" type="text" spellcheck="false" autocomplete="off"
+               placeholder="Find in page — Enter for next, Shift+Enter for previous, Esc to close" />
+      </div>
     </div>
   </div>
+  <!-- The auto-hide reveal strip: a hit-testable edge area OUTSIDE
+       the hidden chrome, so hovering the placement edge always
+       reveals the strip. See the auto-hide section in seijaku.css. -->
+  <div id="edge-strip"></div>
+  <xul:popupset id="mainPopupSet">
+    <!-- The floating URL bar: a XUL panel, so it renders above page
+         content (a plain div did not reliably do that). -->
+    <xul:panel id="urlbar-panel">
+      <div id="urlbar-inner">
+        <div id="urlbar-row">
+          <input id="urlbar-input" type="text" spellcheck="false" autocomplete="off"
+                 placeholder="Search or type an address" />
+          <button id="urlbar-copy" class="urlbar-tool" title="Copy this page's address" tabindex="-1">Copy</button>
+          <button id="urlbar-reader" class="urlbar-tool" title="Reader view" tabindex="-1">Reader</button>
+        </div>
+        <div id="urlbar-suggest" hidden="hidden"></div>
+      </div>
+    </xul:panel>
+    <!-- The permission prompt, anchored at the top centre of the
+         window (where the floating bar appears) when a site asks. -->
+    <xul:panel id="perm-panel">
+      <div id="perm-inner">
+        <div id="perm-prompt">
+          <div id="perm-text"></div>
+          <label id="perm-remember-row"><input id="perm-remember" type="checkbox" /> Remember this decision</label>
+          <div id="perm-buttons">
+            <button id="perm-allow" type="button">Allow</button>
+            <button id="perm-block" type="button">Block</button>
+          </div>
+        </div>
+        <div id="perm-manage" hidden="hidden">
+          <div id="perm-manage-title"></div>
+          <div id="perm-manage-list"></div>
+          <button id="perm-manage-close" type="button">Done</button>
+        </div>
+      </div>
+    </xul:panel>
+    <!-- Extension browserAction popups render here, anchored to
+         their strip button. -->
+    <xul:panel id="ext-popup-panel">
+      <xul:browser id="ext-popup-browser" type="content" />
+    </xul:panel>
+    <!-- Site information, opened from the security lock: host,
+         connection state, this site's permission decisions, and a
+         way to Settings. A XUL panel, so it renders above content. -->
+    <xul:panel id="site-panel">
+      <div id="site-inner">
+        <div id="site-host"></div>
+        <div id="site-state"></div>
+        <div id="site-perms"></div>
+        <div id="site-buttons">
+          <button id="site-settings" type="button">Settings</button>
+          <button id="site-close" type="button">Done</button>
+        </div>
+      </div>
+    </xul:panel>
+    <!-- The command palette (Ctrl+K): a searchable action list, not
+         a command bar — no `:` prompt, no `:command` syntax, the
+         entries are picked from, not typed into. A XUL panel, so it
+         renders above page content like the floating bar. -->
+    <xul:panel id="palette-panel">
+      <div id="palette-inner">
+        <input id="palette-input" type="text" spellcheck="false" autocomplete="off"
+               placeholder="Type to search commands, tabs, bookmarks…" />
+        <div id="palette-list" hidden="hidden"></div>
+      </div>
+    </xul:panel>
+  </xul:popupset>
 </body>
 </html>

@@ -39,6 +39,7 @@ function bindBool(id, pref) {
 }
 
 window.addEventListener("DOMContentLoaded", () => {
+  let shellWindow = () => window.browsingContext.topChromeWindow;
   let theme = bind("setting-theme", "seijaku.theme", "string");
   let customBlock = document.getElementById("setting-custom-theme");
   let showCustom = () => (customBlock.hidden = theme.value != "custom");
@@ -48,6 +49,7 @@ window.addEventListener("DOMContentLoaded", () => {
   bind("setting-custom-fg", "seijaku.theme.custom.fg", "string");
   bind("setting-custom-accent", "seijaku.theme.custom.accent", "string");
   bind("setting-sleep", "seijaku.tabs.unloadAfterMinutes", "int");
+  bind("setting-tabs-position", "seijaku.tabs.position", "string");
   // Search engine: the dropdown holds the known engines; picking one
   // writes its URL into the custom field and the pref, so the field
   // always shows what is actually used. Anything else reads as Custom.
@@ -66,6 +68,63 @@ window.addEventListener("DOMContentLoaded", () => {
     engine.value = known.includes(search.value) ? search.value : "custom";
   });
   bind("setting-homepage", "seijaku.homepage", "string");
+  bind("setting-startup", "seijaku.startup", "string");
+  bind("setting-tracking", "seijaku.trackingprotection", "string");
+  // Page fonts: the engine's own content font prefs. The family
+  // dropdown writes the generic family into both the proportional
+  // and the fixed slots, so code blocks match the choice too.
+  let fontFamily = document.getElementById("setting-font-family");
+  let fontSize = document.getElementById("setting-font-size");
+  try {
+    fontFamily.value = Services.prefs.getStringPref("font.name.variable.x-western", "sans-serif");
+    fontSize.value = Services.prefs.getIntPref("font.size.variable.x-western", 16);
+  } catch (e) { /* the fields just show their defaults */ }
+  let applyFont = () => {
+    try {
+      let family = ["sans-serif", "serif", "monospace"].includes(fontFamily.value)
+        ? fontFamily.value
+        : "sans-serif";
+      let size = Math.min(32, Math.max(9, Number(fontSize.value) || 16));
+      fontSize.value = size;
+      Services.prefs.setStringPref("font.name.variable.x-western", family);
+      Services.prefs.setStringPref("font.name.fixed.x-western", family);
+      Services.prefs.setIntPref("font.size.variable.x-western", size);
+      Services.prefs.setIntPref("font.size.fixed.x-western", size);
+      flashSaved();
+    } catch (e) { /* a font that won't apply leaves the old one */ }
+  };
+  fontFamily.addEventListener("change", applyFont);
+  fontSize.addEventListener("change", applyFont);
+  // Weather: changing the city clears the stored coordinates, so
+  // the next home page load geocodes the new city once.
+  bindBool("setting-weather-enabled", "seijaku.weather.enabled");
+  let weatherCity = bind("setting-weather-city", "seijaku.weather.city", "string");
+  weatherCity.addEventListener("change", () => {
+    try {
+      Services.prefs.clearUserPref("seijaku.weather.lat");
+      Services.prefs.clearUserPref("seijaku.weather.lon");
+    } catch (e) { /* the next fetch just re-geocodes anyway */ }
+  });
+  // Clear browsing data goes through the shell (the page never
+  // touches the cookie or cache services itself).
+  document.getElementById("setting-clear-data").addEventListener("click", () => {
+    let shell = shellWindow()?.Seijaku;
+    let result = document.getElementById("clear-result");
+    if (!shell) {
+      result.textContent = "Couldn't reach the browser to clear anything.";
+      return;
+    }
+    try {
+      result.textContent = shell.clearBrowsingData({
+        history: document.getElementById("clear-history").checked,
+        cookies: document.getElementById("clear-cookies").checked,
+        cache: document.getElementById("clear-cache").checked,
+        downloads: document.getElementById("clear-downloads").checked,
+      });
+    } catch (e) {
+      result.textContent = `Couldn't clear: ${e.message}`;
+    }
+  });
   bindBool("setting-update", "seijaku.update.enabled");
   bindBool("setting-autohide", "seijaku.chrome.autohide");
   // Permission switch: one checkbox drives three policy prefs.

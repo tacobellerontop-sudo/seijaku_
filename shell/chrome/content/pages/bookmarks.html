@@ -12,8 +12,43 @@
   <main>
     <h1>bookmarks</h1>
     <p class="muted">Pages you starred with Ctrl+D or the ☆ button. Nothing here is invented — only pages you actually bookmarked.</p>
+    <input id="search" type="text" spellcheck="false" autocomplete="off"
+           placeholder="Search bookmarks…" />
+    <p>
+      <label class="inline-label">Folder
+        <select id="folder-filter"></select>
+      </label>
+    </p>
+    <p>
+      <input id="new-folder" type="text" spellcheck="false" autocomplete="off"
+             placeholder="New folder name…" />
+      <button id="create-folder" type="button">Create folder</button>
+    </p>
     <div id="list"></div>
-    <p id="empty" class="muted" hidden="hidden">No bookmarks yet. Open a page and press Ctrl+D, or click the ☆ in the address bar.</p>
+    <p id="empty" class="muted" hidden="hidden">No bookmarks yet — or nothing matches that search or folder.</p>
+    <h2>import &amp; export</h2>
+    <p class="muted">Import merges: bookmarks you already have are skipped, never wiped. Export writes into your Downloads folder.</p>
+    <p>
+      <button id="export-html" type="button">Export as HTML</button>
+      <button id="export-json" type="button">Export as JSON</button>
+    </p>
+    <p>
+      <button id="import-file" type="button">Import from a file…</button>
+      <span class="muted">Reads Netscape HTML (every browser's export), Chromium JSON, or Seijaku's own JSON.</span>
+    </p>
+    <p>
+      <label class="inline-label">Import straight from
+        <select id="import-browser">
+          <option value="chrome">Chrome</option>
+          <option value="edge">Edge</option>
+          <option value="brave">Brave</option>
+        </select>
+      </label>
+      <button id="import-browser-go" type="button">Import</button>
+      <span class="muted">Reads that browser's own profile on this machine.</span>
+    </p>
+    <p class="muted">Firefox is not in the list on purpose: its bookmarks live in a database this shell does not open. Export HTML from Firefox itself, then use "Import from a file…" above.</p>
+    <p id="status" class="muted"></p>
   </main>
 </body>
 </html>

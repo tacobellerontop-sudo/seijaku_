@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Reader</title>
+  <link rel="stylesheet" href="chrome://seijaku/content/pages/pages.css" />
+  <script src="chrome://seijaku/content/pages/theme.js"></script>
+  <script src="chrome://seijaku/content/pages/reader.js"></script>
+  <style>
+    #article {
+      max-width: 680px;
+      margin: 32px auto;
+      padding: 0 24px 64px;
+      line-height: 1.7;
+    }
+    #article h1 {
+      font-size: 1.8em;
+      line-height: 1.3;
+      margin-bottom: 4px;
+    }
+    #article .byline {
+      color: var(--muted);
+      margin-bottom: 24px;
+    }
+    #article img {
+      max-width: 100%;
+      height: auto;
+    }
+    #article pre {
+      overflow-x: auto;
+    }
+    #reader-bar {
+      position: sticky;
+      top: 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 16px;
+      background: var(--bg);
+      border-bottom: 1px solid var(--line);
+    }
+    #reader-bar .spacer {
+      flex: 1;
+    }
+    #reader-bar button {
+      font-size: 13px;
+    }
+    #reader-error {
+      max-width: 680px;
+      margin: 48px auto;
+      padding: 0 24px;
+    }
+  </style>
+</head>
+<body>
+  <div id="reader-bar">
+    <button id="reader-back" type="button">Back to page</button>
+    <span class="spacer"></span>
+    <button id="reader-smaller" type="button" title="Smaller text">A−</button>
+    <button id="reader-larger" type="button" title="Larger text">A+</button>
+  </div>
+  <main id="article" hidden="hidden">
+    <h1 id="reader-title"></h1>
+    <div id="reader-byline" class="byline" hidden="hidden"></div>
+    <div id="reader-content"></div>
+  </main>
+  <div id="reader-error" hidden="hidden">
+    <p class="muted">No article here. Open a page with an article and press Reader again.</p>
+  </div>
+</body>
+</html>

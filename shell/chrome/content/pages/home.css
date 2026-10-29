@@ -1,8 +1,9 @@
 /* Seijaku home page, in Ryoku's language: flat black, abstract thin
    lines, dot art, and formal type matched with casual labels. No
    gradients, no glow, no shaded washes — the feeling comes from the
-   dots and the lines, the way Ryoku's dithered statue and thin circle
-   do it. The centred search from your sketch stays where it was. */
+   dots and the lines. The sketch's layout: brand top-left, weather
+   top-right, counts down the left, greeting and search centred, the
+   red moon drawn in dots on the right. */
 
 body {
   min-height: 100vh;
@@ -22,7 +23,8 @@ body {
   pointer-events: none;
 }
 
-/* Dot-art sun in a thin abstract circle, half off the right edge. */
+/* Dot-art red moon over abstract horizon lines, inside a thin
+   abstract circle, half off the right edge. */
 #art {
   position: fixed;
   right: -140px;
@@ -48,13 +50,102 @@ body {
   user-select: none;
   pointer-events: none;
 }
+
+/* Brand top-left, with the sketch's tagline under it. */
+#brand-top {
+  position: fixed;
+  top: 28px;
+  left: 7vw;
+  z-index: 1;
+  user-select: none;
+  pointer-events: none;
+}
+#brand-name {
+  font-family: "Yu Mincho", "MS Mincho", serif;
+  font-size: 15px;
+  letter-spacing: 0.35em;
+  text-transform: uppercase;
+}
+#tagline {
+  margin-top: 2px;
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  color: var(--muted);
+}
+
+/* Weather top-right: date, temperature, condition, city. */
+#weather {
+  position: fixed;
+  top: 28px;
+  right: 7vw;
+  z-index: 1;
+  text-align: right;
+  user-select: none;
+  pointer-events: none;
+}
+#weather[hidden] {
+  display: none;
+}
+#weather-date {
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  color: var(--muted);
+}
+#weather-temp {
+  font-family: "Yu Mincho", "MS Mincho", serif;
+  font-size: 26px;
+  line-height: 1.2;
+}
+#weather-cond,
+#weather-city {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* Counts down the left, under the vertical kanji's air. */
+#counts {
+  position: fixed;
+  left: 7vw;
+  bottom: 8vh;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.count-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  width: 148px;
+  font-size: 12px;
+  color: var(--muted);
+}
+button.count-row {
+  appearance: none;
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: var(--muted);
+}
+button.count-row:hover {
+  color: var(--fg);
+}
+button.count-row:hover span:last-child {
+  color: var(--accent);
+}
+
 @media (max-width: 900px) {
-  #art {
+  #art,
+  #counts {
     display: none;
   }
 }
 @media (max-width: 700px) {
-  #vertical {
+  #vertical,
+  #weather {
     display: none;
   }
 }
@@ -81,36 +172,23 @@ main {
   }
 }
 
-/* Formal serif for the wordmark, like Ryoku's big serif title. */
-#brand {
+/* The greeting: small Japanese above, big serif below, casual gloss
+   under that — the sketch's voice, in the page's own type. */
+#greeting-jp {
+  margin: 0 0 6px;
   font-family: "Yu Mincho", "MS Mincho", serif;
-  font-size: 56px;
+  font-size: 14px;
+  letter-spacing: 0.3em;
+  color: var(--muted);
+}
+#greeting {
+  font-family: "Yu Mincho", "MS Mincho", serif;
+  font-size: 52px;
   font-weight: normal;
   letter-spacing: 1px;
   margin: 0 0 8px;
 }
-#seal {
-  color: var(--accent);
-  font-size: 40px;
-}
-#cursor {
-  color: var(--accent);
-  animation: blink 1s steps(1) infinite;
-}
-@keyframes blink {
-  50% {
-    visibility: hidden;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  #cursor {
-    animation: none;
-  }
-}
-
-/* Casual gloss under the wordmark: serif italic, Ryoku's
-   "for the sake of power and beauty" voice. */
-#meaning {
+#greeting-sub {
   margin: 0 0 28px;
   font-family: "Yu Mincho", "MS Mincho", serif;
   font-style: italic;
@@ -120,7 +198,7 @@ main {
 }
 
 /* No box, just one underline, centred: grey at rest, vermilion while
-   searching. The second, always-grey line underneath it is gone. */
+   searching. */
 #search-form {
   width: min(520px, 100%);
   margin: 0 auto;
@@ -146,11 +224,54 @@ main {
   font-style: italic;
 }
 
+/* FREQUENT: the user's own Frequent-folder bookmarks, as initial
+   tiles with names, plus a + that opens the bookmarks page. */
+#frequent {
+  margin-top: 28px;
+}
+#frequent-label {
+  font-size: 10px;
+  letter-spacing: 0.3em;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+#frequent-list {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 18px;
+}
+.freq-item {
+  appearance: none;
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+}
+.freq-item:hover .freq-name {
+  color: var(--accent);
+}
+.freq-tile {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--line);
+  color: var(--accent);
+  font-size: 12px;
+  flex: none;
+}
+
 #sleeping {
-  margin: 12px 0 0;
+  margin: 16px 0 0;
   font-size: 12px;
 }
 #sleeping[hidden] {
   display: none;
 }
-

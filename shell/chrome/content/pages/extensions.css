@@ -1,0 +1,38 @@
+/* Extensions page only: icon, action grouping, disabled rows and
+   the error line. Layout, colours and row style come from lists.css
+   and pages.css. */
+
+.ext-error {
+  color: var(--error);
+}
+
+.ext-icon {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  color: var(--accent);
+  font-size: 18px;
+}
+
+.ext-icon-img {
+  width: 32px;
+  height: 32px;
+}
+
+.ext-actions {
+  flex-shrink: 0;
+  display: flex;
+  gap: 8px;
+}
+
+.ext-disabled .row-main {
+  opacity: 0.7;
+}
+
+.ext-desc {
+  white-space: normal;
+}

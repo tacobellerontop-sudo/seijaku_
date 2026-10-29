@@ -12,7 +12,18 @@ pref("seijaku.theme.custom.accent", "#d8442a");
 pref("seijaku.homepage", "seijaku:home");      // seijaku:home, about:blank or any address
 pref("seijaku.searchUrl", "https://duckduckgo.com/?q=%s");
 pref("seijaku.tabs.unloadAfterMinutes", 15);   // 0 turns tab sleeping off
-pref("seijaku.chrome.autohide", false);        // hide the top bars, keep only the red line at the top edge (Settings)
+pref("seijaku.tabs.position", "top");           // top, bottom, left or right (Settings)
+pref("seijaku.startup", "restore");            // restore, home or blank (Settings)
+pref("seijaku.trackingprotection", "strict");  // strict, standard or off (Settings) — strict is the bundle below, kept as the default so the setting never weakens anyone on its own
+pref("seijaku.weather.enabled", true);         // the home page's weather widget
+pref("seijaku.weather.city", "Singapore");     // geocoded once, then stored as lat/lon below
+pref("seijaku.weather.lat", "");               // filled on first weather fetch
+pref("seijaku.weather.lon", "");
+pref("seijaku.chrome.autohide", false);        // hide the strip, keep only the reveal strip at the placement edge (Settings)
+/* Location is denied outright, never prompted: it is the one
+   permission Seijaku deliberately does not offer. The prompt
+   component denies it again as a second layer. */
+pref("geo.enabled", false);
 
 /* The engine already composites on the GPU; nothing here turns that
    off, and the shell's own animations are opacity/transform only, so

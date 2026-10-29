@@ -1,8 +1,10 @@
-/* Seijaku: a lean browser shell on Gecko. Tabs, an address line, a home
-   page, settings, tab sleeping, auto-update, find, zoom, themes,
-   bookmarks, history, downloads, and address suggestions. Nothing
-   else on purpose: no mods, no extensions host, no accounts,
-   no services, no command bar. See docs/PLAN.md. */
+/* Seijaku: a lean browser shell on Gecko. Tabs on any edge, a floating
+   URL bar (no persistent address line), a home page, settings, tab
+   sleeping (auto and on demand), auto-update, find, zoom, themes,
+   bookmarks, history, downloads, tab suggestions, a PDF viewer with
+   annotation, permission prompts, private windows, extensions, and a
+   reader view. Nothing else on purpose: no accounts, no services, no
+   command bar, no sync, no AI. See docs/PLAN.md. */
 
 "use strict";
 
@@ -16,7 +18,7 @@ const SESSION_FILE = "seijaku-session.json";
 const DATA_FILE = "seijaku-data.json";
 const HISTORY_LIMIT = 1000;
 const MESSAGE_MS = 4000;
-const SEIJAKU_VERSION = "0.2.1";
+const SEIJAKU_VERSION = "0.2.2";
 const UPDATE_REPO = "tacobellerontop-sudo/seijaku_";
 const UPDATE_CHECK_MS = 24 * 60 * 60 * 1000;
 
@@ -26,6 +28,9 @@ const PAGES = {
   "seijaku:bookmarks": "chrome://seijaku/content/pages/bookmarks.html",
   "seijaku:history": "chrome://seijaku/content/pages/history.html",
   "seijaku:downloads": "chrome://seijaku/content/pages/downloads.html",
+  "seijaku:extensions": "chrome://seijaku/content/pages/extensions.html",
+  "seijaku:reader": "chrome://seijaku/content/pages/reader.html",
+  "seijaku:pdf": "chrome://seijaku/content/pages/pdf.html",
 };
 
 function realURL(url) {
@@ -54,13 +59,25 @@ class Tab {
     // No close button on purpose: a tab closes with a double-click
     // (or Ctrl+W, or middle-click). One less control per tab keeps the
     // strip quiet, and the strip is where the eye lives.
-    this.el.append(this.labelEl);
+    // The speaker mark: shown while the tab makes sound, dimmed while
+    // muted; clicking it mutes or unmutes the tab (see toggleMute).
+    this.speakerEl = document.createElement("span");
+    this.speakerEl.className = "tab-speaker";
+    this.speakerEl.textContent = "\u266a";
+    this.speakerEl.title = "Mute this tab";
+    this.el.append(this.labelEl, this.speakerEl);
     this.el.tab = this;
     Object.defineProperty(this.el, "linkedBrowser", { get: () => this.browser });
     this.browser = null;
     this.url = "about:blank";
     this.title = "";
     this.lastActive = Date.now();
+    // Pinned tabs sit first in the strip and are never slept or
+    // closed until unpinned (see togglePin). Security is the last
+    // state the progress listener reported: secure, broken,
+    // insecure, or internal for the browser's own pages.
+    this.pinned = false;
+    this.security = "internal";
   }
 
   get asleep() {
@@ -71,6 +88,7 @@ class Tab {
     this.labelEl.textContent = this.title || this.url;
     this.el.title = this.url;
     this.el.toggleAttribute("asleep", this.asleep);
+    this.el.toggleAttribute("pinned", this.pinned);
   }
 }
 
@@ -84,9 +102,27 @@ var Seijaku = {
   // The engine's download list, kept by initDownloads.
   _downloads: [],
   _downloadsReady: false,
-  // Current address suggestions, if the suggest box is open.
+  // Whether this window is private (Ctrl+Shift+N): no session, no
+  // history, the private downloads list. Set in init from the window
+  // arguments (and the engine's own private flag).
+  isPrivate: false,
+  // Current floating-bar suggestions, if the bar is open.
   _suggestItems: [],
   _suggestIndex: -1,
+  // Current command-palette entries, if the palette is open.
+  _paletteItems: [],
+  _paletteIndex: -1,
+  // Weather, cached so the home page never waits on the network.
+  _weatherCache: null,
+  // Permission prompts waiting for an answer, and the one on screen.
+  _permQueue: [],
+  _permActive: null,
+  // The article the reader page renders, set by openReader.
+  _readerArticle: null,
+  // The extension host, once AddonManager has started.
+  _AddonManager: null,
+  _extReady: false,
+  _extPopupFor: null,
   _messageTimer: null,
   _pendingUpdate: null,
   _stagedUpdate: null,
@@ -97,9 +133,6 @@ var Seijaku = {
   },
   get $content() {
     return document.getElementById("content");
-  },
-  get $addressbar() {
-    return document.getElementById("addressbar");
   },
   get selectedBrowser() {
     return this.selected?.browser ?? null;
@@ -119,9 +152,30 @@ var Seijaku = {
   },
 
   init() {
+    // A private window (Ctrl+Shift+N) is flagged two ways, the way
+    // Breached does it: the engine's own private flag (the "private"
+    // window feature), and the JSON argument the opener passed. The
+    // engine flag is what keeps this window out of the singleton
+    // main window's way; the argument carries the URL to open.
+    this.initPrivateFlag();
+    if (this.isPrivate) {
+      document.documentElement.setAttribute("private", "true");
+    }
     this.applyTheme();
+    this.applyTrackingProtection();
+    // A System theme follows the OS live: when the OS flips dark /
+    // light, the chrome re-applies (pages do the same in theme.js).
+    try {
+      this._systemMedia = window.matchMedia("(prefers-color-scheme: dark)");
+      this._systemMedia.addEventListener("change", () => {
+        if (this.pref("theme", "ink") == "system") {
+          this.applyTheme();
+        }
+      });
+    } catch (e) { /* a System theme just won't follow live */ }
     Services.prefs.addObserver(PREF, this);
-    this.initTitlebar();
+    this.initStrip();
+    this.applyTabsPosition();
     this.initBrowserDOMWindow();
     this.applyChromeAutohide();
     this.$tabbar.addEventListener("mousedown", this);
@@ -130,42 +184,123 @@ var Seijaku = {
     this.initFindBar();
     document.getElementById("nav-back").addEventListener("click", () => this.selectedBrowser?.goBack());
     document.getElementById("nav-forward").addEventListener("click", () => this.selectedBrowser?.goForward());
-    document.getElementById("nav-reload").addEventListener("click", () => this.selectedBrowser?.reload());
+    // Reload — or Stop while the tab is loading (see stopLoad).
+    document.getElementById("nav-reload").addEventListener("click", () => {
+      if (this.selected?.browser && this.selected.el.hasAttribute("busy")) {
+        this.stopLoad();
+      } else {
+        this.selectedBrowser?.reload();
+      }
+    });
     document.getElementById("tab-new").addEventListener("click", () => this.newTab());
     document.getElementById("tab-undo").addEventListener("click", () => this.undoCloseTab());
     document.getElementById("bookmark-star").addEventListener("click", () => this.toggleBookmark());
-    document.getElementById("toolbar-menu").addEventListener("click", () => this.openPage("settings"));
+    document.getElementById("strip-menu").addEventListener("click", () => this.openPage("settings"));
+    document.getElementById("perm-lock").addEventListener("click", () => this.showPermissionManage());
+    document.getElementById("sec-lock").addEventListener("click", () => this.showSiteInfo());
+    document.getElementById("edge-strip").addEventListener("mouseenter", () => this.showChrome());
+    document.getElementById("main").addEventListener("mouseover", () => {
+      // Moving onto the page hides auto-hidden chrome. This fires
+      // when the pointer enters the page area from the strip; moves
+      // inside the page itself never reach chrome at all.
+      if (this._autohide) {
+        this.hideChrome();
+      }
+    });
     this.loadData();
     this.initDownloads();
     this.updateUndoButton();
-    this.initAddressBar();
+    this.initFloatingBar();
+    this.initPalette();
+    this.initSitePanel();
+    this.initPermissionPanel();
+    this.initExtensions();
     window.addEventListener("keydown", this, true);
     window.addEventListener("mousemove", this);
     window.addEventListener("unload", this);
     Keys.install();
     // A link clicked elsewhere while Seijaku runs arrives as a remote
     // command line; without a handler of its own, the shell learns
-    // about it here instead (see launchURL below).
-    try {
-      Services.obs.addObserver(this, "commandline-args-changed");
-    } catch (e) { /* remote links just open a new window instead */ }
+    // about it here instead (see launchURL below). A private window
+    // never takes these: the link belongs in the main window, and
+    // this window must not open it a second time.
+    if (!this.isPrivate) {
+      try {
+        Services.obs.addObserver(this, "commandline-args-changed");
+      } catch (e) { /* remote links just open a new window instead */ }
+    }
 
-    // A launched link beats the home page: it opens as the first tab
-    // on a cold start, or as a new tab after a restored session.
-    let launch = this.launchURL();
-    this.restoreSession().then(restored => {
+    if (this.isPrivate) {
+      // No restored session, no launched link: a private window
+      // starts clean, on the URL it was opened with or the home page.
+      this.openTab(this._privateURL || this.homepage());
+    } else {
+      // A launched link beats the home page: it opens as the first tab
+      // on a cold start, or as a new tab after a restored session.
+      let launch = this.launchURL();
+      let launchTarget = null;
       if (launch) {
-        let target = launch;
         try {
-          target = this.urlFor(launch);
-        } catch (e) { /* keep the raw launch address */ }
-        this.openTab(target, { afterCurrent: true });
-      } else if (!restored) {
-        this.openTab(this.homepage());
+          launchTarget = this.urlFor(launch);
+        } catch (e) {
+          launchTarget = launch;
+        }
       }
-    });
+      // Startup mode (Settings): restore is the old behavior; home
+      // opens only the home page; blank opens only about:blank. A
+      // launched link still opens on top in home/blank modes — a
+      // clicked link is an explicit request, not a startup page.
+      let mode = this.pref("startup", "restore");
+      if (mode == "home") {
+        this.openTab(this.homepage());
+        if (launchTarget) {
+          this.openTab(launchTarget, { afterCurrent: true });
+        }
+      } else if (mode == "blank") {
+        this.openTab("about:blank");
+        if (launchTarget) {
+          this.openTab(launchTarget, { afterCurrent: true });
+        }
+      } else {
+        this.restoreSession().then(restored => {
+          if (launchTarget) {
+            this.openTab(launchTarget, { afterCurrent: true });
+          } else if (!restored) {
+            this.openTab(this.homepage());
+          }
+        });
+      }
+    }
     this._sleepTimer = setInterval(() => this.sleepIdleTabs(), 60 * 1000);
-    this.maybeCheckForUpdates();
+    if (!this.isPrivate) {
+      this.maybeCheckForUpdates();
+    }
+  },
+
+  /** Reads the private flag from the engine and the window argument. */
+  initPrivateFlag() {
+    try {
+      let { PrivateBrowsingUtils } = ChromeUtils.importESModule(
+        "resource://gre/modules/PrivateBrowsingUtils.sys.mjs"
+      );
+      if (PrivateBrowsingUtils.isWindowPrivate(window)) {
+        this.isPrivate = true;
+      }
+    } catch (e) { /* fall through to the argument */ }
+    if (this.isPrivate) {
+      return;
+    }
+    try {
+      let arg = (window.arguments || [])[0];
+      let text = typeof arg == "string" ? arg : arg?.data;
+      if (text) {
+        let parsed = JSON.parse(text);
+        if (parsed?.private) {
+          this.isPrivate = true;
+          this._privateURL = parsed.url || null;
+        }
+      }
+    } catch (e) { /* not a private window */ }
   },
 
   // -------------------------------------------------------------- updates
@@ -410,8 +545,14 @@ var Seijaku = {
     }
     if (topic == "nsPref:changed" && data.startsWith(PREF)) {
       this.applyTheme();
+      if (data == PREF + "trackingprotection") {
+        this.applyTrackingProtection();
+      }
       if (data == PREF + "chrome.autohide") {
         this.applyChromeAutohide();
+      }
+      if (data == PREF + "tabs.position") {
+        this.applyTabsPosition();
       }
       // The Settings page has no way to call into this window, so it
       // asks for an update by flipping this pref instead.
@@ -429,12 +570,22 @@ var Seijaku = {
   applyTheme() {
     // A custom theme is three colours from prefs; everything else
     // falls back to ink, so a custom theme can never come out unreadable.
+    // "system" resolves through the OS setting, live (see init): dark
+    // is the ink look, light is the paper look — no new colour set.
     let custom = {
       barBg: this.pref("theme.custom.barBg", "#171310"),
       fg: this.pref("theme.custom.fg", "#ece4d3"),
       accent: this.pref("theme.custom.accent", "#d8442a"),
     };
-    Theme.applyColors(document.documentElement, this.pref("theme", "ink"), custom);
+    let theme = this.pref("theme", "ink");
+    if (theme == "system") {
+      try {
+        theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "ink" : "paper";
+      } catch (e) {
+        theme = "ink";
+      }
+    }
+    Theme.applyColors(document.documentElement, theme, custom);
   },
 
   // -------------------------------------------------------------- taskbar
@@ -528,15 +679,41 @@ var Seijaku = {
     }
   },
 
+  // -------------------------------------------------------------- tab placement
+  //
+  // seijaku.tabs.position moves the whole strip — seal, nav, tabs,
+  // actions, window buttons — to any edge: top (the default), bottom,
+  // left, or right. The CSS does the laying out; this only stamps
+  // the attribute the CSS reads. An unknown value falls back to top
+  // instead of leaving the strip unplaced.
+
+  applyTabsPosition() {
+    let position = this.pref("tabs.position", "top");
+    if (!["top", "bottom", "left", "right"].includes(position)) {
+      position = "top";
+    }
+    document.documentElement.setAttribute("tabs-position", position);
+  },
+
   // -------------------------------------------------------------- auto-hide chrome
   //
   // An opt-in "just the page" mode: with seijaku.chrome.autohide on,
-  // the three top rows (title bar, tab strip, address line) collapse
-  // and only a 2px vermilion line stays at the very top edge — the
-  // selected tab's underline colour, with nothing else. Moving the
-  // mouse to the very top edge brings the rows back; moving it onto
-  // the page hides them again. Ctrl+Shift+H flips the setting, so
-  // the mode can always be left from the keyboard too.
+  // the strip collapses and only the reveal strip stays at the
+  // placement edge. Ctrl+Shift+H flips the setting, so the mode can
+  // always be left from the keyboard too.
+  //
+  // Why the old reveal did not work: the 2px line lived INSIDE the
+  // hidden chrome container (visibility: collapse takes it out of
+  // hit-testing, so it could never receive a mouse event), and the
+  // only other reveal path was a window mousemove — which the page
+  // never delivers, because the page lives in a content process and
+  // its mouse events never reach the chrome window. The fix is the
+  // #edge-strip element: it sits OUTSIDE the hidden container at the
+  // placement edge, always hit-testable while hidden, and its own
+  // mouseenter reveals the strip (see init). The window mousemove
+  // below stays only as a fallback for the strip's edge, and the
+  // #main mouseover in init is what hides the strip again — moving
+  // onto the page is the one chrome-side event that reliably fires.
 
   applyChromeAutohide() {
     try {
@@ -572,26 +749,15 @@ var Seijaku = {
     } catch (e) { /* the setting just doesn't flip */ }
   },
 
-  initTitlebar() {
+  initStrip() {
     // This is what hides the Windows title bar: without it Gecko draws
     // its own bar above ours (the double-bar bug in 0.1.0). The attribute
     // is also on the <html> element in seijaku.xhtml; setting it here too
-    // covers the case where the document is reloaded.
+    // covers the case where the document is reloaded. The strip IS the
+    // title bar now (there is no separate title row): its background
+    // drags the window, and every control on it opts out in CSS.
     document.documentElement.setAttribute("customtitlebar", "true");
     this.setAppUserModelId();
-    // One chrome row, Ryoku-style: the tabs live in the title bar row,
-    // after the seal and before the window buttons. The window title is
-    // redundant once tabs carry their own titles, so it is hidden. If
-    // the move fails for any reason, the old two-row layout stays intact.
-    try {
-      let tabbar = document.getElementById("tabbar");
-      let content = document.getElementById("titlebar-content");
-      let title = document.getElementById("titlebar-title");
-      if (tabbar && content && tabbar.parentNode != content) {
-        content.appendChild(tabbar);
-        if (title) title.hidden = true;
-      }
-    } catch (e) { /* keep the two-row layout */ }
     let buttons = {
       "titlebar-min": () => window.minimize(),
       "titlebar-max": () => window.maximize(),
@@ -639,18 +805,31 @@ var Seijaku = {
   loadData() {
     let path = this.dataPath();
     if (!path) {
-      this._data = { bookmarks: [], history: [] };
+      this._data = { bookmarks: [], history: [], permissions: {} };
       return;
     }
     IOUtils.readJSON(path)
       .then(data => {
+        // Bookmarks carry a folder ("" is All); older stores have
+        // none, so they migrate to All here. Folder names the user
+        // created live alongside, so an empty folder still exists.
+        let bookmarks = Array.isArray(data?.bookmarks) ? data.bookmarks : [];
+        for (let b of bookmarks) {
+          if (typeof b.folder != "string") {
+            b.folder = "";
+          }
+        }
         this._data = {
-          bookmarks: Array.isArray(data?.bookmarks) ? data.bookmarks : [],
+          bookmarks,
           history: Array.isArray(data?.history) ? data.history : [],
+          permissions: data?.permissions && typeof data.permissions == "object" ? data.permissions : {},
+          folders: Array.isArray(data?.folders)
+            ? data.folders.filter(f => typeof f == "string" && f)
+            : [],
         };
       })
       .catch(() => {
-        this._data = { bookmarks: [], history: [] };
+        this._data = { bookmarks: [], history: [], permissions: {}, folders: [] };
       });
   },
 
@@ -662,6 +841,11 @@ var Seijaku = {
     IOUtils.writeJSON(path, this._data).catch(e =>
       console.error("Seijaku: saving data", e)
     );
+  },
+
+  /** True once the data file has loaded (home counts wait for this). */
+  dataReady() {
+    return !!this._data;
   },
 
   getBookmarks() {
@@ -679,14 +863,16 @@ var Seijaku = {
       return;
     }
     if (!this._data) {
-      this._data = { bookmarks: [], history: [] };
+      this._data = { bookmarks: [], history: [], permissions: {} };
     }
     let index = this._data.bookmarks.findIndex(b => b.url == tab.url);
     if (index >= 0) {
       this._data.bookmarks.splice(index, 1);
       this.showMessage("Bookmark removed");
     } else {
-      this._data.bookmarks.push({ url: tab.url, title: tab.title || "", added: Date.now() });
+      // The star adds to All (folder ""); moving it to a folder is
+      // the bookmarks page's job.
+      this._data.bookmarks.push({ url: tab.url, title: tab.title || "", added: Date.now(), folder: "" });
       this.showMessage("Bookmarked");
     }
     this.saveData();
@@ -702,6 +888,828 @@ var Seijaku = {
     this.updateBookmarkStar();
   },
 
+  // -------------------------------------------------------------- bookmark folders, import, export
+  //
+  // A bookmark's folder is one string: "" is All, and "Reading list"
+  // and "Frequent" are always offered (the home page's FREQUENT row
+  // is the Frequent folder). Folders the user creates live in the
+  // store's folders list, so an empty folder still exists; folders
+  // used by a bookmark appear even if they were never created that
+  // way. Import never wipes anything: it merges, skipping URLs
+  // already bookmarked, and reports how many arrived.
+
+  getBookmarkFolders() {
+    let out = ["Reading list", "Frequent"];
+    let extra = [...(this._data?.folders ?? [])];
+    for (let b of this._data?.bookmarks ?? []) {
+      if (b.folder) {
+        extra.push(b.folder);
+      }
+    }
+    for (let f of extra) {
+      if (f && !out.includes(f)) {
+        out.push(f);
+      }
+    }
+    return out;
+  },
+
+  getBookmarksByFolder(folder) {
+    return this.getBookmarks().filter(b => (b.folder || "") == folder);
+  },
+
+  getFrequentBookmarks() {
+    return this.getBookmarksByFolder("Frequent");
+  },
+
+  setBookmarkFolder(url, folder) {
+    if (!this._data) {
+      return;
+    }
+    folder = String(folder || "");
+    let mark = this._data.bookmarks.find(b => b.url == url);
+    if (!mark) {
+      return;
+    }
+    mark.folder = folder;
+    if (folder && !this._data.folders.includes(folder)) {
+      this._data.folders.push(folder);
+    }
+    this.saveData();
+  },
+
+  createBookmarkFolder(name) {
+    if (!this._data) {
+      return false;
+    }
+    name = String(name || "").trim();
+    if (!name || name == "All" || this.getBookmarkFolders().includes(name)) {
+      return false;
+    }
+    this._data.folders.push(name);
+    this.saveData();
+    return true;
+  },
+
+  /** Writes a text file into the Downloads folder. */
+  async saveTextFile(filename, text) {
+    let safe = String(filename).replace(/[\\/:*?"<>|]/g, "_") || "seijaku.txt";
+    let dir = Services.dirsvc.get("DfltDwnld", Ci.nsIFile);
+    let file = dir.clone();
+    file.append(safe);
+    let { IOUtils } = ChromeUtils.importESModule("resource://gre/modules/IOUtils.sys.mjs");
+    await IOUtils.write(file.path, new TextEncoder().encode(text));
+    return safe;
+  },
+
+  bookmarksHTML() {
+    let esc = s => String(s ?? "")
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    let rows = marks => marks.map(m =>
+      `        <DT><A HREF="${esc(m.url)}" ADD_DATE="${Math.floor((m.added || Date.now()) / 1000)}">${esc(m.title || m.url)}</A>`
+    ).join("\n");
+    let marks = this._data?.bookmarks ?? [];
+    let parts = [
+      "<!DOCTYPE NETSCAPE-Bookmark-file-1>",
+      '<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=UTF-8">',
+      "<TITLE>Bookmarks</TITLE>",
+      "<H1>Bookmarks</H1>",
+      "<DL><p>",
+    ];
+    let top = marks.filter(m => !m.folder);
+    if (top.length) {
+      parts.push(rows(top));
+    }
+    for (let folder of this.getBookmarkFolders()) {
+      let inFolder = marks.filter(m => m.folder == folder);
+      if (!inFolder.length) {
+        continue;
+      }
+      parts.push(`        <DT><H3>${esc(folder)}</H3>`);
+      parts.push("        <DL><p>");
+      parts.push(rows(inFolder));
+      parts.push("        </DL><p>");
+    }
+    parts.push("</DL><p>");
+    return parts.join("\n");
+  },
+
+  async exportBookmarks(format) {
+    try {
+      if (format == "html") {
+        let name = await this.saveTextFile("seijaku-bookmarks.html", this.bookmarksHTML());
+        this.showMessage(`Exported bookmarks to ${name}`);
+        return name;
+      }
+      let name = await this.saveTextFile(
+        "seijaku-bookmarks.json",
+        JSON.stringify(this._data?.bookmarks ?? [], null, 2)
+      );
+      this.showMessage(`Exported bookmarks to ${name}`);
+      return name;
+    } catch (e) {
+      this.showMessage(`Couldn't export bookmarks: ${e.message}`, "error");
+      throw e;
+    }
+  },
+
+  /** Parses Netscape-format bookmark HTML into {url, title, folder}. */
+  parseNetscapeBookmarks(html) {
+    let out = [];
+    let doc;
+    try {
+      doc = new DOMParser().parseFromString(html, "text/html");
+    } catch (e) {
+      return out;
+    }
+    // The parser nests a folder's list two ways (as the next <DL>
+    // sibling of its <DT>, or inside that <DT>), so the walk accepts
+    // both: a folder name applies to the list that follows it, and
+    // the walk returns to the enclosing folder when that list ends.
+    let walkDL = (dl, folder) => {
+      let current = folder;
+      for (let child of dl.children) {
+        if (child.tagName == "DT") {
+          let h3 = child.querySelector("H3");
+          let a = child.querySelector("A");
+          let inner = [...child.querySelectorAll(":scope > DL")];
+          if (h3) {
+            current = h3.textContent.trim();
+            for (let d of inner) {
+              walkDL(d, current);
+            }
+            current = folder;
+          } else if (a?.href) {
+            out.push({ url: a.href, title: a.textContent.trim(), folder: current });
+          } else {
+            for (let d of inner) {
+              walkDL(d, current);
+            }
+          }
+        } else if (child.tagName == "DL") {
+          walkDL(child, current);
+          current = folder;
+        } else if (child.tagName == "H3") {
+          current = child.textContent.trim();
+        } else if (child.tagName == "A" && child.href) {
+          out.push({ url: child.href, title: child.textContent.trim(), folder: current });
+        }
+      }
+    };
+    let root = doc.querySelector("DL");
+    if (root) {
+      walkDL(root, "");
+    }
+    return out;
+  },
+
+  /** Parses Chromium's Bookmarks JSON (Chrome, Edge, Brave share it). */
+  parseChromiumBookmarks(data) {
+    let out = [];
+    let walk = (node, folder) => {
+      if (!node || typeof node != "object") {
+        return;
+      }
+      if (node.type == "url" && node.url) {
+        out.push({ url: node.url, title: node.name || node.url, folder });
+        return;
+      }
+      if (Array.isArray(node.children)) {
+        // A root (bookmark_bar, other, synced) keeps its children
+        // unfiled; a real folder files them under its name.
+        let next = folder;
+        if (node.type == "folder" && node.name && !["Bookmarks bar", "Other bookmarks", "Mobile bookmarks"].includes(node.name)) {
+          next = node.name;
+        }
+        for (let child of node.children) {
+          walk(child, next);
+        }
+      }
+    };
+    for (let root of Object.values(data?.roots ?? {})) {
+      walk(root, "");
+    }
+    return out;
+  },
+
+  /** Merges parsed bookmarks, skipping URLs already stored. */
+  mergeBookmarks(parsed) {
+    if (!this._data) {
+      this._data = { bookmarks: [], history: [], permissions: {}, folders: [] };
+    }
+    let have = new Set(this._data.bookmarks.map(b => b.url));
+    let added = 0;
+    let skipped = 0;
+    for (let item of parsed) {
+      if (!item.url || have.has(item.url)) {
+        skipped++;
+        continue;
+      }
+      have.add(item.url);
+      let folder = String(item.folder || "");
+      this._data.bookmarks.push({ url: item.url, title: item.title || item.url, added: Date.now(), folder });
+      if (folder && !this._data.folders.includes(folder)) {
+        this._data.folders.push(folder);
+      }
+      added++;
+    }
+    if (added) {
+      this.saveData();
+    }
+    return { added, skipped };
+  },
+
+  async importBookmarksFromFile() {
+    let picker = Cc["@mozilla.org/filepicker;1"].createInstance(Ci.nsIFilePicker);
+    picker.init(window, "Import bookmarks", Ci.nsIFilePicker.modeOpen);
+    picker.appendFilter("Bookmark files (*.html, *.json)", "*.html; *.json");
+    let result = await picker.open();
+    if (result != Ci.nsIFilePicker.returnOK || !picker.file) {
+      throw new Error("Import cancelled — no file chosen");
+    }
+    let { IOUtils } = ChromeUtils.importESModule("resource://gre/modules/IOUtils.sys.mjs");
+    let text = new TextDecoder().decode(await IOUtils.read(picker.file.path));
+    let trimmed = text.trim();
+    let parsed = [];
+    if (trimmed.startsWith("[")) {
+      // Seijaku's own JSON export: an array of bookmark objects.
+      try {
+        parsed = JSON.parse(trimmed).map(b => ({
+          url: b.url, title: b.title || b.url, folder: b.folder || "",
+        }));
+      } catch (e) {
+        parsed = [];
+      }
+    } else if (trimmed.startsWith("{")) {
+      try {
+        parsed = this.parseChromiumBookmarks(JSON.parse(trimmed));
+      } catch (e) {
+        parsed = [];
+      }
+    } else {
+      parsed = this.parseNetscapeBookmarks(trimmed);
+    }
+    if (!parsed.length) {
+      throw new Error("No bookmarks found in that file");
+    }
+    let counts = this.mergeBookmarks(parsed);
+    this.showMessage(`Imported ${counts.added} bookmark${counts.added == 1 ? "" : "s"} (${counts.skipped} already here)`);
+    return counts;
+  },
+
+  async importBookmarksFromBrowser(browser) {
+    // Chromium's profile layout is the same for Chrome, Edge and
+    // Brave; only the vendor folder differs. Firefox is deliberately
+    // not here: its bookmarks live in places.sqlite, and reading
+    // them would wake the storage service for a one-off import —
+    // Firefox users export HTML from Firefox itself instead, which
+    // the file import above reads.
+    let vendor = {
+      chrome: "Google/Chrome/User Data/Default/Bookmarks",
+      edge: "Microsoft/Edge/User Data/Default/Bookmarks",
+      brave: "BraveSoftware/Brave-Browser/User Data/Default/Bookmarks",
+    }[browser];
+    let label = { chrome: "Chrome", edge: "Edge", brave: "Brave" }[browser] || browser;
+    if (!vendor) {
+      throw new Error("Unknown browser");
+    }
+    let base = "";
+    try {
+      base = Services.dirsvc.get("LocalAppData", Ci.nsIFile).path;
+    } catch (e) { /* fall through to the environment */ }
+    if (!base) {
+      try {
+        base = Services.env.get("LOCALAPPDATA") || "";
+      } catch (e) { /* no base, the read below fails plainly */ }
+    }
+    let path = [base, ...vendor.split("/")].join("\\");
+    let { IOUtils } = ChromeUtils.importESModule("resource://gre/modules/IOUtils.sys.mjs");
+    let data;
+    try {
+      data = await IOUtils.readJSON(path);
+    } catch (e) {
+      throw new Error(`No ${label} profile found (looked for its Bookmarks file)`);
+    }
+    let parsed = this.parseChromiumBookmarks(data);
+    if (!parsed.length) {
+      throw new Error(`No bookmarks found in the ${label} profile`);
+    }
+    let counts = this.mergeBookmarks(parsed);
+    this.showMessage(`Imported ${counts.added} bookmark${counts.added == 1 ? "" : "s"} from ${label} (${counts.skipped} already here)`);
+    return counts;
+  },
+
+  // -------------------------------------------------------------- tracking protection
+  //
+  // One setting, three bundles, applied as prefs so new page loads
+  // pick them up. Strict is the bundle the defaults file already
+  // sets — and the default here, so switching the setting on never
+  // quietly weakens anyone: strict keeps the full bundle, standard
+  // keeps tracker blocking with the extra modules off, off turns it
+  // all off (cookies then behave normally). uBlock Origin, through
+  // the extension host, is still the stronger ad-blocking option;
+  // the Settings page says so.
+
+  applyTrackingProtection(mode) {
+    mode = mode || this.pref("trackingprotection", "strict");
+    if (!["strict", "standard", "off"].includes(mode)) {
+      mode = "strict";
+    }
+    let bundle = {
+      strict: { tp: true, social: true, email: true, finger: true, crypto: true, cookie: 5, strip: true },
+      standard: { tp: true, social: false, email: false, finger: false, crypto: false, cookie: 5, strip: false },
+      off: { tp: false, social: false, email: false, finger: false, crypto: false, cookie: 0, strip: false },
+    }[mode];
+    try {
+      let p = Services.prefs;
+      p.setBoolPref("privacy.trackingprotection.enabled", bundle.tp);
+      p.setBoolPref("privacy.trackingprotection.socialtracking.enabled", bundle.social);
+      p.setBoolPref("privacy.trackingprotection.emailtracking.enabled", bundle.email);
+      p.setBoolPref("privacy.trackingprotection.fingerprinting.enabled", bundle.finger);
+      p.setBoolPref("privacy.trackingprotection.cryptomining.enabled", bundle.crypto);
+      p.setIntPref("network.cookie.cookieBehavior", bundle.cookie);
+      p.setBoolPref("privacy.query_stripping.enabled", bundle.strip);
+    } catch (e) { /* a bundle that won't apply leaves the old one */ }
+  },
+
+  // -------------------------------------------------------------- clear browsing data
+  //
+  // History wipes the stored log; cookies go through the cookie
+  // manager (which is why the UI warns: this signs the user out of
+  // sites); cache goes through the cache service, or is skipped with
+  // a note if that service is missing; downloads clears the list
+  // only — files on disk stay where they are.
+
+  clearBrowsingData(what) {
+    let done = [];
+    let skipped = [];
+    if (what.history) {
+      try {
+        this.clearHistory();
+        done.push("history");
+      } catch (e) { skipped.push("history"); }
+    }
+    if (what.cookies) {
+      try {
+        Cc["@mozilla.org/cookiemanager;1"].getService(Ci.nsICookieManager).removeAll();
+        done.push("cookies");
+      } catch (e) { skipped.push("cookies"); }
+    }
+    if (what.cache) {
+      let cleared = false;
+      try {
+        if (Services.cache2?.clear) {
+          Services.cache2.clear();
+          cleared = true;
+        }
+      } catch (e) { /* fall through to the old service */ }
+      if (!cleared) {
+        try {
+          Cc["@mozilla.org/network/cache-service;1"]
+            .getService(Ci.nsICacheService).evictEntries(Ci.nsICache.STORE_ANYWHERE);
+          cleared = true;
+        } catch (e) { /* no cache service on this engine */ }
+      }
+      if (cleared) {
+        done.push("cache");
+      } else {
+        skipped.push("cache (no cache service)");
+      }
+    }
+    if (what.downloads) {
+      try {
+        for (let entry of this._downloads ?? []) {
+          try {
+            entry.dl?.remove();
+          } catch (e) { /* one download staying listed is fine */ }
+        }
+        this._downloads = [];
+        done.push("downloads");
+      } catch (e) { skipped.push("downloads"); }
+    }
+    let message = done.length ? `Cleared ${done.join(", ")}` : "Nothing cleared";
+    if (skipped.length) {
+      message += ` (skipped: ${skipped.join(", ")})`;
+    }
+    this.showMessage(message);
+    return message;
+  },
+
+  // -------------------------------------------------------------- weather
+  //
+  // Open-Meteo, no API key: the geocoding API turns the Settings city
+  // into coordinates (stored, so it geocodes once), then the forecast
+  // API returns the current temperature and weather code. The shell
+  // fetches with the system principal — the home page never fetches
+  // cross-origin itself. A failed fetch returns null and the home
+  // page hides the widget quietly; cached data, if any, keeps
+  // showing instead of a broken widget.
+
+  weatherEnabled() {
+    return this.pref("weather.enabled", true);
+  },
+
+  getWeather() {
+    return this._weatherCache;
+  },
+
+  weatherWord(code) {
+    if (code == 0) { return ["Clear", "☀"]; }
+    if (code == 1 || code == 2) { return ["Partly cloudy", "☁"]; }
+    if (code == 3) { return ["Overcast", "☁"]; }
+    if (code == 45 || code == 48) { return ["Fog", "≈"]; }
+    if (code >= 51 && code <= 57) { return ["Drizzle", "☂"]; }
+    if (code >= 61 && code <= 67) { return ["Rain", "☂"]; }
+    if (code >= 71 && code <= 77) { return ["Snow", "❄"]; }
+    if (code >= 80 && code <= 82) { return ["Rain showers", "☂"]; }
+    if (code == 85 || code == 86) { return ["Snow showers", "❄"]; }
+    if (code == 95) { return ["Thunderstorm", "⚡"]; }
+    if (code == 96 || code == 99) { return ["Thunderstorm with hail", "⚡"]; }
+    return ["", "•"];
+  },
+
+  async refreshWeather() {
+    if (!this.weatherEnabled()) {
+      return null;
+    }
+    if (this._weatherCache && Date.now() - this._weatherCache.at < 30 * 60 * 1000) {
+      return this._weatherCache;
+    }
+    try {
+      let city = this.pref("weather.city", "Singapore") || "Singapore";
+      let lat = this.pref("weather.lat", "");
+      let lon = this.pref("weather.lon", "");
+      if (!lat || !lon) {
+        let geo = await (await fetch(
+          `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=1`
+        )).json();
+        let place = geo?.results?.[0];
+        if (!place) {
+          throw new Error("city not found");
+        }
+        lat = String(place.latitude);
+        lon = String(place.longitude);
+        Services.prefs.setStringPref(PREF + "weather.lat", lat);
+        Services.prefs.setStringPref(PREF + "weather.lon", lon);
+      }
+      let data = await (await fetch(
+        `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,weather_code&temperature_unit=celsius&timezone=auto`
+      )).json();
+      let current = data?.current;
+      if (current == null || current.temperature_2m == null) {
+        throw new Error("no current weather");
+      }
+      let [word, mark] = this.weatherWord(current.weather_code);
+      this._weatherCache = {
+        at: Date.now(),
+        city,
+        temp: Math.round(current.temperature_2m),
+        word,
+        mark,
+      };
+      return this._weatherCache;
+    } catch (e) {
+      // A failed fetch hides the widget (unless cached data exists,
+      // which the home page keeps showing) — never an error line.
+      return null;
+    }
+  },
+
+  // -------------------------------------------------------------- connection security + site info
+  //
+  // The progress listener reports the security state; the strip
+  // shows it separately from the permission lock (perm-lock is what
+  // the site may USE; this is whether the connection itself is
+  // trustworthy). Secure is a lock, anything else on the web is a
+  // warning, and the browser's own pages show no mark at all.
+  // Clicking the mark opens the site panel: host, connection state
+  // in plain words, the site's stored permission decisions with
+  // Revoke, and a way to Settings.
+
+  updateSecLock() {
+    let lock = document.getElementById("sec-lock");
+    if (!lock) {
+      return;
+    }
+    let tab = this.selected;
+    if (!tab || tab.security == "internal") {
+      lock.hidden = true;
+      return;
+    }
+    lock.hidden = false;
+    if (tab.security == "secure") {
+      lock.textContent = "🔒";
+      lock.title = "Connection is secure — click for site information";
+    } else {
+      lock.textContent = "⚠";
+      lock.title = "Connection is not secure — click for site information";
+    }
+  },
+
+  initSitePanel() {
+    document.getElementById("site-settings").addEventListener("click", () => {
+      try {
+        document.getElementById("site-panel").hidePopup();
+      } catch (e) { /* already closed */ }
+      this.openPage("settings");
+    });
+    document.getElementById("site-close").addEventListener("click", () => {
+      try {
+        document.getElementById("site-panel").hidePopup();
+      } catch (e) { /* already closed */ }
+    });
+  },
+
+  showSiteInfo() {
+    let tab = this.selected;
+    if (!tab) {
+      return;
+    }
+    let host = this.permissionHost(tab.url);
+    if (!host) {
+      return;
+    }
+    document.getElementById("site-host").textContent = host;
+    document.getElementById("site-state").textContent =
+      tab.security == "secure"
+        ? "This connection is secure."
+        : tab.security == "broken"
+          ? "This connection is broken or untrusted."
+          : "This connection is not secure — anything you send could be read.";
+    let list = document.getElementById("site-perms");
+    list.replaceChildren();
+    let grants = this.getPermissionsFor(host);
+    let types = Object.keys(grants);
+    if (!types.length) {
+      let empty = document.createElement("div");
+      empty.className = "muted";
+      empty.textContent = "No permissions granted or blocked yet.";
+      list.append(empty);
+    }
+    for (let type of types) {
+      let row = document.createElement("div");
+      row.className = "perm-manage-row";
+      let label = document.createElement("span");
+      label.textContent = `${this.permissionTypeText(type)}: ${grants[type]}`;
+      let revoke = document.createElement("button");
+      revoke.type = "button";
+      revoke.textContent = "Revoke";
+      revoke.addEventListener("click", () => {
+        this.setPermission(host, type, null);
+        this.showSiteInfo();
+      });
+      row.append(label, revoke);
+      list.append(row);
+    }
+    try {
+      let width = 360;
+      let x = Math.max(0, window.screenX + Math.round((window.outerWidth - width) / 2));
+      document.getElementById("site-panel").openPopupAtScreen(x, window.screenY + 48);
+    } catch (e) { /* the panel just doesn't open */ }
+  },
+
+  // -------------------------------------------------------------- pinned tabs
+  //
+  // Ctrl+Shift+P pins the current tab: it moves first in the strip,
+  // renders narrow with a vermilion dot, never auto-sleeps, and
+  // cannot be closed by any means until it is unpinned (closeTab
+  // refuses with a message). Pinning survives restart through the
+  // saved session.
+
+  togglePinCurrent() {
+    let tab = this.selected;
+    if (!tab) {
+      return;
+    }
+    this.togglePin(tab);
+  },
+
+  togglePin(tab) {
+    if (!tab) {
+      return;
+    }
+    tab.pinned = !tab.pinned;
+    tab.update();
+    this.orderTabs();
+    this.saveSession();
+    this.showMessage(tab.pinned ? "Tab pinned — it stays first and can't be closed until unpinned" : "Tab unpinned");
+  },
+
+  /** Pinned tabs first, otherwise the order they were opened in. */
+  orderTabs() {
+    let pinned = this.tabs.filter(t => t.pinned);
+    let rest = this.tabs.filter(t => !t.pinned);
+    this.tabs = [...pinned, ...rest];
+    for (let tab of this.tabs) {
+      this.$tabbar.append(tab.el);
+    }
+  },
+
+  // -------------------------------------------------------------- command palette
+  //
+  // Ctrl+K opens a searchable action palette: a XUL panel above the
+  // page, like the floating bar. It searches commands, open tabs,
+  // and bookmarks by substring as you type; arrows move, Enter runs
+  // the command, switches to the tab, or opens the bookmark, Esc
+  // closes. This is NOT a command bar: there is no `:` prompt and
+  // no `:command` syntax — the list is picked from, not typed into.
+
+  paletteCommands() {
+    let copyUrl = () => {
+      let url = this.selected?.url || "";
+      if (!url) {
+        return;
+      }
+      try {
+        Cc["@mozilla.org/widget/clipboardhelper;1"]
+          .getService(Ci.nsIClipboardHelper)
+          .copyString(url);
+        this.showMessage("Address copied");
+      } catch (e) {
+        this.showMessage("Couldn't copy the address", "error");
+      }
+    };
+    let setTheme = name => {
+      try {
+        Services.prefs.setStringPref(PREF + "theme", name);
+      } catch (e) { /* the theme just doesn't change */ }
+    };
+    return [
+      { title: "New tab", run: () => this.newTab() },
+      { title: "New private window", run: () => this.openPrivateWindow() },
+      { title: "Open settings", run: () => this.openPage("settings") },
+      { title: "Open bookmarks", run: () => this.openPage("bookmarks") },
+      { title: "Open history", run: () => this.openPage("history") },
+      { title: "Open downloads", run: () => this.openPage("downloads") },
+      { title: "Open extensions", run: () => this.openPage("extensions") },
+      { title: "Switch to dark theme", run: () => setTheme("ink") },
+      { title: "Switch to light theme", run: () => setTheme("paper") },
+      { title: "Switch to System theme", run: () => setTheme("system") },
+      { title: "Toggle tab autohide", run: () => this.toggleChromeAutohide() },
+      { title: "Sleep current tab", run: () => this.sleepCurrentTab() },
+      { title: "Mute current tab", run: () => { if (this.selected) { this.toggleMute(this.selected); } } },
+      { title: "Reader view", run: () => this.openReader() },
+      { title: "Copy page URL", run: copyUrl },
+      { title: "Clear history", run: () => { this.clearHistory(); this.showMessage("History cleared"); } },
+    ];
+  },
+
+  initPalette() {
+    let panel = document.getElementById("palette-panel");
+    let input = document.getElementById("palette-input");
+    input.addEventListener("input", () => {
+      this._paletteItems = this.paletteItems(input.value);
+      this._paletteIndex = -1;
+      this.showPaletteList();
+    });
+    input.addEventListener("keydown", event => {
+      if (event.key == "ArrowDown") {
+        this.movePalette(1);
+        event.preventDefault();
+        return;
+      }
+      if (event.key == "ArrowUp") {
+        this.movePalette(-1);
+        event.preventDefault();
+        return;
+      }
+      if (event.key == "Escape") {
+        this.hidePalette();
+        return;
+      }
+      if (event.key != "Enter") {
+        return;
+      }
+      let item = this._paletteItems[this._paletteIndex];
+      if (item) {
+        this.runPaletteItem(item);
+      }
+    });
+    panel.addEventListener("popuphidden", () => {
+      this._paletteItems = [];
+      this._paletteIndex = -1;
+      let box = document.getElementById("palette-list");
+      if (box) {
+        box.replaceChildren();
+        box.hidden = true;
+      }
+    });
+  },
+
+  paletteItems(query) {
+    query = (query || "").trim().toLowerCase();
+    let out = [];
+    let match = (title, url) => !query || `${title || ""} ${url || ""}`.toLowerCase().includes(query);
+    for (let cmd of this.paletteCommands()) {
+      if (match(cmd.title, "")) {
+        out.push({ kind: "Command", title: cmd.title, run: cmd.run });
+      }
+    }
+    for (let tab of this.tabs) {
+      if (match(tab.title, tab.url)) {
+        out.push({ kind: "Tab", title: tab.title || tab.url, url: tab.url, tab });
+      }
+    }
+    if (this._data) {
+      for (let item of this._data.bookmarks.slice().reverse()) {
+        if (match(item.title, item.url)) {
+          out.push({ kind: "Bookmark", title: item.title || item.url, url: item.url });
+        }
+      }
+    }
+    return out.slice(0, 12);
+  },
+
+  showPalette() {
+    let panel = document.getElementById("palette-panel");
+    let input = document.getElementById("palette-input");
+    input.value = "";
+    this._paletteItems = this.paletteItems("");
+    this._paletteIndex = -1;
+    try {
+      let width = 560;
+      let x = Math.max(0, window.screenX + Math.round((window.outerWidth - width) / 2));
+      panel.openPopupAtScreen(x, window.screenY + 48);
+    } catch (e) {
+      return;
+    }
+    this.showPaletteList();
+    try {
+      input.focus();
+    } catch (e) { /* focus is best-effort */ }
+  },
+
+  hidePalette() {
+    try {
+      document.getElementById("palette-panel").hidePopup();
+    } catch (e) { /* already closed */ }
+  },
+
+  showPaletteList() {
+    let box = document.getElementById("palette-list");
+    if (!box) {
+      return;
+    }
+    box.replaceChildren();
+    let items = this._paletteItems;
+    if (!items.length) {
+      box.hidden = true;
+      this._paletteIndex = -1;
+      return;
+    }
+    items.forEach((item, i) => {
+      let row = document.createElement("div");
+      row.className = "palette-row";
+      if (i == this._paletteIndex) {
+        row.setAttribute("selected", "true");
+      }
+      let kind = document.createElement("span");
+      kind.className = "palette-kind";
+      kind.textContent = item.kind;
+      let title = document.createElement("span");
+      title.className = "palette-title";
+      title.textContent = item.title;
+      row.append(kind, title);
+      // Mousedown, not click: the panel would hide on blur first
+      // and the click would never land (same as the URL bar).
+      row.addEventListener("mousedown", event => {
+        event.preventDefault();
+        this.runPaletteItem(item);
+      });
+      box.append(row);
+    });
+    box.hidden = false;
+  },
+
+  movePalette(delta) {
+    if (!this._paletteItems.length) {
+      return;
+    }
+    if (this._paletteIndex < 0) {
+      this._paletteIndex = delta > 0 ? 0 : this._paletteItems.length - 1;
+    } else {
+      this._paletteIndex =
+        (this._paletteIndex + delta + this._paletteItems.length) % this._paletteItems.length;
+    }
+    this.showPaletteList();
+  },
+
+  runPaletteItem(item) {
+    this.hidePalette();
+    try {
+      if (item.tab) {
+        this.selectTab(item.tab);
+      } else if (item.run) {
+        item.run();
+      } else if (item.url && this.selectedBrowser) {
+        this.load(this.selectedBrowser, item.url);
+        this.selectedBrowser.focus();
+      }
+    } catch (e) {
+      this.showMessage(`Couldn't do that: ${e.message}`, "error");
+    }
+  },
+
   getHistory() {
     return (this._data?.history ?? []).slice().reverse();
   },
@@ -715,13 +1723,17 @@ var Seijaku = {
   },
 
   recordHistory(url, title = "") {
+    // A private window records nothing.
+    if (this.isPrivate) {
+      return;
+    }
     // Internal pages are never history: the home page, settings,
     // and the browser's own pages would otherwise drown real visits.
     if (!url || url == "about:blank" || /^(seijaku|about|chrome):/.test(url)) {
       return;
     }
     if (!this._data) {
-      this._data = { bookmarks: [], history: [] };
+      this._data = { bookmarks: [], history: [], permissions: {} };
     }
     let last = this._data.history[this._data.history.length - 1];
     if (last && last.url == url) {
@@ -864,7 +1876,9 @@ var Seijaku = {
       let { Downloads } = ChromeUtils.importESModule(
         "resource://gre/modules/Downloads.sys.mjs"
       );
-      let list = await Downloads.getList(Downloads.PUBLIC);
+      // A private window reads the private downloads list, so its
+      // downloads never appear on the main window's page.
+      let list = await Downloads.getList(this.isPrivate ? Downloads.PRIVATE : Downloads.PUBLIC);
       this._downloads = [];
       this._downloadsReady = true;
       let keyFor = dl => {
@@ -985,20 +1999,27 @@ var Seijaku = {
     }
   },
 
-  // -------------------------------------------------------------- address
+  // -------------------------------------------------------------- floating URL bar
+  //
+  // There is no persistent address bar: Ctrl+T opens a new tab and
+  // summons this bar, Ctrl+L summons it for the current tab,
+  // prefilled with that tab's address. It is a XUL panel, not a
+  // plain div — the old suggest dropdown was a div and carried the
+  // known risk of painting under page content; a panel is a native
+  // popup and always renders above the page. Typing searches open
+  // tabs first, then bookmarks, then history (substring, newest
+  // first, at most eight); Enter opens the highlighted suggestion
+  // (switching to a tab suggestion, navigating for the rest), Esc
+  // closes the bar. The bar also carries a copy-URL button and a
+  // reader-view button.
 
-  initAddressBar() {
-    let input = this.$addressbar;
-    input.addEventListener("focus", () => input.select());
+  initFloatingBar() {
+    let panel = document.getElementById("urlbar-panel");
+    let input = document.getElementById("urlbar-input");
     input.addEventListener("input", () => {
       this._suggestItems = this.suggestMatches(input.value);
       this._suggestIndex = -1;
       this.showSuggest();
-    });
-    input.addEventListener("blur", () => {
-      // Rows listen on mousedown, so they fire before this hides
-      // the box; the timeout only covers clicks elsewhere.
-      setTimeout(() => this.hideSuggest(), 150);
     });
     input.addEventListener("keydown", event => {
       if (event.key == "ArrowDown") {
@@ -1012,19 +2033,20 @@ var Seijaku = {
         return;
       }
       if (event.key == "Escape") {
-        this.hideSuggest();
+        this.hideFloatingBar();
         return;
       }
       if (event.key != "Enter") {
         return;
       }
-      // A highlighted suggestion beats whatever was typed: Enter
-      // opens it in this tab, the way Enter opens typed text.
+      // A highlighted suggestion beats whatever was typed.
       if (this._suggestIndex >= 0 && this._suggestItems[this._suggestIndex]) {
-        let url = this._suggestItems[this._suggestIndex].url;
-        this.hideSuggest();
-        if (this.selectedBrowser) {
-          this.load(this.selectedBrowser, url);
+        let item = this._suggestItems[this._suggestIndex];
+        this.hideFloatingBar();
+        if (item.tab) {
+          this.selectTab(item.tab);
+        } else if (this.selectedBrowser) {
+          this.load(this.selectedBrowser, item.url);
           this.selectedBrowser.focus();
         }
         return;
@@ -1040,6 +2062,7 @@ var Seijaku = {
         this.showMessage(e.message, "error");
         return;
       }
+      this.hideFloatingBar();
       if (event.ctrlKey || event.metaKey) {
         this.openTab(url, { afterCurrent: true });
       } else if (this.selectedBrowser) {
@@ -1047,49 +2070,115 @@ var Seijaku = {
       }
       this.selectedBrowser?.focus();
     });
+    document.getElementById("urlbar-copy").addEventListener("click", () => {
+      let url = this.selected?.url || "";
+      if (!url) {
+        return;
+      }
+      try {
+        Cc["@mozilla.org/widget/clipboardhelper;1"]
+          .getService(Ci.nsIClipboardHelper)
+          .copyString(url);
+        this.showMessage("Address copied");
+      } catch (e) {
+        this.showMessage("Couldn't copy the address", "error");
+      }
+    });
+    document.getElementById("urlbar-reader").addEventListener("click", () => {
+      this.hideFloatingBar();
+      this.openReader();
+    });
+    panel.addEventListener("popuphidden", () => {
+      this._suggestItems = [];
+      this._suggestIndex = -1;
+      let box = document.getElementById("urlbar-suggest");
+      if (box) {
+        box.replaceChildren();
+        box.hidden = true;
+      }
+    });
   },
 
-  // -------------------------------------------------------------- address suggestions
+  showFloatingBar(prefill) {
+    let panel = document.getElementById("urlbar-panel");
+    let input = document.getElementById("urlbar-input");
+    if (prefill === undefined) {
+      let url = this.selected?.url ?? "";
+      prefill = url == "seijaku:home" || url == "about:blank" ? "" : url;
+    }
+    input.value = prefill;
+    this._suggestItems = prefill ? this.suggestMatches(prefill) : [];
+    this._suggestIndex = -1;
+    try {
+      // Centred near the top of the window, over the page.
+      let width = 560;
+      let x = Math.max(0, window.screenX + Math.round((window.outerWidth - width) / 2));
+      panel.openPopupAtScreen(x, window.screenY + 48);
+    } catch (e) {
+      // A panel that won't open is not worth breaking navigation
+      // for: the bar just stays closed.
+      return;
+    }
+    this.showSuggest();
+    try {
+      input.focus();
+      input.select();
+    } catch (e) { /* focus is best-effort */ }
+  },
+
+  hideFloatingBar() {
+    try {
+      document.getElementById("urlbar-panel").hidePopup();
+    } catch (e) { /* already closed */ }
+  },
+
+  /** Ctrl+T: a new tab, with the bar already open over it. */
+  newTabWithBar() {
+    this.newTab();
+    this.showFloatingBar("");
+  },
+
+  // -------------------------------------------------------------- suggestions
   //
-  // As you type, the address bar offers your own bookmarks first,
-  // then your history — substring matches on title or address, newest
-  // first, at most eight. Nothing is fetched and nothing leaves the
-  // machine: the only sources are the local data file. The box is a
-  // plain div under the centred address bar, sized to match it, so
-  // if it ever paints under page content in the shipped engine the
-  // fallback is the old behaviour (typing + Enter still work) and
-  // the fix is a XUL panel instead — a Windows-run question, not a
-  // startup risk.
+  // As you type, the bar offers your open tabs first, then your
+  // bookmarks, then your history — substring matches on title or
+  // address, newest first, at most eight. Nothing is fetched and
+  // nothing leaves the machine: the only sources are the tabs and
+  // the local data file.
 
   suggestMatches(query) {
     query = query.trim().toLowerCase();
-    if (query.length < 2 || !this._data) {
+    if (query.length < 2) {
       return [];
     }
     let seen = new Set();
     let out = [];
-    let take = list => {
-      for (let item of list) {
-        if (out.length >= 8) {
-          return;
-        }
-        if (seen.has(item.url)) {
-          continue;
-        }
-        let hay = `${item.title || ""} ${item.url}`.toLowerCase();
-        if (hay.includes(query)) {
-          seen.add(item.url);
-          out.push(item);
-        }
+    let take = item => {
+      if (out.length >= 8 || seen.has(item.url)) {
+        return;
+      }
+      let hay = `${item.title || ""} ${item.url}`.toLowerCase();
+      if (hay.includes(query)) {
+        seen.add(item.url);
+        out.push(item);
       }
     };
-    take(this._data.bookmarks.slice().reverse());
-    take(this._data.history.slice().reverse());
+    for (let tab of this.tabs) {
+      take({ url: tab.url, title: tab.title, tab });
+    }
+    if (this._data) {
+      for (let item of this._data.bookmarks.slice().reverse()) {
+        take(item);
+      }
+      for (let item of this._data.history.slice().reverse()) {
+        take(item);
+      }
+    }
     return out;
   },
 
   showSuggest() {
-    let box = document.getElementById("address-suggest");
+    let box = document.getElementById("urlbar-suggest");
     if (!box) {
       return;
     }
@@ -1113,12 +2202,14 @@ var Seijaku = {
       url.className = "suggest-url";
       url.textContent = item.url;
       row.append(title, url);
-      // Mousedown, not click: clicking would blur the input first
-      // and the box would hide before the click landed.
+      // Mousedown, not click: the panel would hide on blur first
+      // and the click would never land.
       row.addEventListener("mousedown", event => {
         event.preventDefault();
-        this.hideSuggest();
-        if (this.selectedBrowser) {
+        this.hideFloatingBar();
+        if (item.tab) {
+          this.selectTab(item.tab);
+        } else if (this.selectedBrowser) {
           this.load(this.selectedBrowser, item.url);
           this.selectedBrowser.focus();
         }
@@ -1126,15 +2217,6 @@ var Seijaku = {
       box.append(row);
     });
     box.hidden = false;
-  },
-
-  hideSuggest() {
-    let box = document.getElementById("address-suggest");
-    if (box) {
-      box.hidden = true;
-    }
-    this._suggestIndex = -1;
-    this._suggestItems = [];
   },
 
   moveSuggest(delta) {
@@ -1148,41 +2230,56 @@ var Seijaku = {
         (this._suggestIndex + delta + this._suggestItems.length) % this._suggestItems.length;
     }
     this.showSuggest();
-    this.$addressbar.value = this._suggestItems[this._suggestIndex].url;
-  },
-
-  updateAddressBar() {
-    let input = this.$addressbar;
-    if (!input || document.activeElement == input) {
-      return;
-    }
-    let url = this.selected?.url ?? "";
-    input.value = url == "seijaku:home" || url == "about:blank" ? "" : url;
-    let lock = document.getElementById("address-lock");
-    lock.textContent = url.startsWith("https://")
-      ? "\u{1f512}"
-      : url.startsWith("http://")
-        ? "\u{1f513}"
-        : "\u2315";
-    lock.title = url.startsWith("https://")
-      ? "Secure connection"
-      : url.startsWith("http://")
-        ? "Not secure"
-        : "Seijaku page";
+    document.getElementById("urlbar-input").value = this._suggestItems[this._suggestIndex].url;
   },
 
   updateNavButtons() {
     let b = this.selectedBrowser;
     document.getElementById("nav-back").disabled = !b?.canGoBack;
     document.getElementById("nav-forward").disabled = !b?.canGoForward;
+    this.updateReloadButton();
+    this.updateSecLock();
+  },
+
+  /** The reload button is a stop button while its tab loads. */
+  updateReloadButton() {
+    let button = document.getElementById("nav-reload");
+    if (!button) {
+      return;
+    }
+    let loading = !!this.selected?.el.hasAttribute("busy");
+    button.textContent = loading ? "■" : "↻";
+    button.title = loading ? "Stop loading (click)" : "Reload (Ctrl+R)";
+  },
+
+  /** Stops the selected tab's load, through whatever stop the
+     browser element offers on this engine. */
+  stopLoad() {
+    let b = this.selectedBrowser;
+    if (!b) {
+      return;
+    }
+    try {
+      if (typeof b.stop == "function") {
+        b.stop();
+        return;
+      }
+    } catch (e) { /* fall through */ }
+    try {
+      b.webNavigation?.stop(Ci.nsIWebNavigation.STOP_ALL);
+    } catch (e) {
+      try {
+        b.docShell?.stop(Ci.nsIWebNavigation.STOP_ALL);
+      } catch (_e) { /* nothing stopped; the load just finishes */ }
+    }
   },
 
   updateTitle() {
     let tab = this.selected;
-    document.title = tab ? `${tab.title || tab.url} - Seijaku` : "Seijaku";
-    document.getElementById("titlebar-title").textContent = document.title;
-    this.updateAddressBar();
+    let name = this.isPrivate ? "Seijaku (Private)" : "Seijaku";
+    document.title = tab ? `${tab.title || tab.url} - ${name}` : name;
     this.updateBookmarkStar();
+    this.updatePermLock();
   },
 
   /** Turns typed text into a URL: an address, or a search. */
@@ -1192,6 +2289,16 @@ var Seijaku = {
       return this.homepage();
     }
     if (PAGES[text]) {
+      return text;
+    }
+    // view-source: is a trivial scheme addition: the engine renders
+    // source itself, so it passes straight through (with the same
+    // javascript:/data: refusal as every other typed address).
+    if (/^view-source:/i.test(text)) {
+      let inner = text.slice("view-source:".length);
+      if (/^(javascript|data):/i.test(inner)) {
+        throw new Error("javascript: and data: addresses can't be opened from the address bar");
+      }
       return text;
     }
     let looksLikeAddress =
@@ -1276,7 +2383,12 @@ var Seijaku = {
         }
         if (flags & Ci.nsIWebProgressListener.STATE_START) {
           tab.el.setAttribute("busy", "true");
+          if (tab === Seijaku.selected) {
+            Seijaku.updateReloadButton();
+          }
         } else if (flags & Ci.nsIWebProgressListener.STATE_STOP) {
+          // A stop is a stop, error or not: the loading mark clears
+          // on every finish, never just on success.
           tab.el.removeAttribute("busy");
           if (tab === Seijaku.selected) {
             Seijaku.updateNavButtons();
@@ -1290,6 +2402,12 @@ var Seijaku = {
         }
         tab.url = displayURL(location.spec);
         tab.title = b.contentTitle || "";
+        // A new address resets the security mark (failing safe: a
+        // fresh web address reads insecure until the security event
+        // below says otherwise); the browser's own pages are neutral.
+        tab.security = /^(seijaku|about|chrome):/.test(tab.url) || tab.url == "about:blank"
+          ? "internal"
+          : "insecure";
         tab.update();
         Seijaku.recordHistory(tab.url, tab.title);
         if (tab === Seijaku.selected) {
@@ -1300,13 +2418,33 @@ var Seijaku = {
       },
       onProgressChange() {},
       onStatusChange() {},
-      onSecurityChange() {},
+      onSecurityChange(webProgress, request, state) {
+        if (!webProgress.isTopLevel) {
+          return;
+        }
+        try {
+          if (state & Ci.nsIWebProgressListener.STATE_IS_SECURE) {
+            tab.security = "secure";
+          } else if (state & Ci.nsIWebProgressListener.STATE_IS_BROKEN) {
+            tab.security = "broken";
+          } else {
+            tab.security = "insecure";
+          }
+        } catch (e) {
+          tab.security = "insecure";
+        }
+        if (tab === Seijaku.selected) {
+          Seijaku.updateSecLock();
+        }
+      },
       onContentBlockingEvent() {},
     };
     tab.progressListener = listener;
     b.addProgressListener(
       listener,
-      Ci.nsIWebProgress.NOTIFY_STATE_NETWORK | Ci.nsIWebProgress.NOTIFY_LOCATION
+      Ci.nsIWebProgress.NOTIFY_STATE_NETWORK |
+        Ci.nsIWebProgress.NOTIFY_LOCATION |
+        Ci.nsIWebProgress.NOTIFY_SECURITY
     );
     b.addEventListener("pagetitlechanged", () => {
       tab.title = b.contentTitle || "";
@@ -1316,6 +2454,25 @@ var Seijaku = {
         Seijaku.updateTitle();
       }
     });
+    // Sound: the engine tells chrome when a tab starts and stops
+    // making noise; the strip shows a speaker mark while it does,
+    // and clicking the mark mutes or unmutes the tab. If these
+    // events never fire in the shipped engine, the mark just never
+    // shows — muting from the mark is impossible, but nothing breaks.
+    try {
+      b.addEventListener("AudioPlayback", () => {
+        tab._soundPlaying = true;
+        Seijaku.updateSpeaker(tab);
+      });
+      b.addEventListener("DOMAudioPlaybackStarted", () => {
+        tab._soundPlaying = true;
+        Seijaku.updateSpeaker(tab);
+      });
+      b.addEventListener("DOMAudioPlaybackStopped", () => {
+        tab._soundPlaying = false;
+        Seijaku.updateSpeaker(tab);
+      });
+    } catch (e) { /* no sound marks on this engine */ }
   },
 
   activate(tab) {
@@ -1339,6 +2496,7 @@ var Seijaku = {
   openTab(url, options = {}) {
     let tab = new Tab();
     tab.url = url || "about:blank";
+    tab.pinned = !!options.pinned;
     let index = options.index ?? (options.afterCurrent && this.selected
       ? this.tabs.indexOf(this.selected) + 1
       : this.tabs.length);
@@ -1370,15 +2528,32 @@ var Seijaku = {
   },
 
   load(browser, url, { triggeringPrincipal } = {}) {
-    // Extension filter, kept tiny: Seijaku has no extension host, so
-    // an extension could never run here — it would only be dead
-    // weight. Direct loads of extension files are refused with a plain
-    // explanation instead of pretending to install them. (Files linked
-    // from a page just download and never run, for the same reason.)
+    // Extension files: a Firefox (.xpi) file installs through the
+    // extension host; a Chrome (.crx) file genuinely cannot run in
+    // Gecko, so it is still refused with a plain explanation.
+    // (Files linked from a page just download and never run.)
     let bare = String(url).split(/[?#]/, 1)[0].toLowerCase();
-    if (bare.endsWith(".xpi") || bare.endsWith(".crx")) {
-      this.showMessage("Extensions don't run in Seijaku — there is no extension host to run them in", "error");
+    let isViewSource = /^view-source:/i.test(String(url));
+    if (!isViewSource && bare.endsWith(".crx")) {
+      this.showMessage("Chrome (.crx) extensions can't run in Seijaku — only Firefox (.xpi) extensions can", "error");
       return;
+    }
+    if (!isViewSource && bare.endsWith(".xpi")) {
+      this.installXpiUrl(String(url));
+      return;
+    }
+    // PDFs open in the built-in viewer instead of downloading — but
+    // only for navigations the shell itself starts (typed, suggested,
+    // bookmarked). A PDF link clicked inside a page still downloads:
+    // intercepting that would need a stream-converter-level hook the
+    // shell does not have. view-source: of a PDF is left alone.
+    if (
+      !isViewSource &&
+      /\.pdf$/i.test(bare) &&
+      /^(https?|file):/i.test(String(url)) &&
+      !String(url).startsWith("seijaku:pdf")
+    ) {
+      url = "seijaku:pdf#url=" + encodeURIComponent(String(url));
     }
     url = realURL(url);
     let uri;
@@ -1402,7 +2577,7 @@ var Seijaku = {
     if (!tab) {
       return;
     }
-    this.hideSuggest();
+    this.hideFloatingBar();
     let previous = this.selected;
     if (previous && previous !== tab) {
       previous.el.removeAttribute("selected");
@@ -1424,6 +2599,12 @@ var Seijaku = {
 
   closeTab(tab = this.selected) {
     if (!tab) {
+      return;
+    }
+    // A pinned tab cannot be closed by any means until it is
+    // unpinned — double-click, middle-click, and Ctrl+W alike.
+    if (tab.pinned) {
+      this.showMessage("That tab is pinned — unpin it first (Ctrl+Shift+P)");
       return;
     }
     let index = this.tabs.indexOf(tab);
@@ -1534,11 +2715,58 @@ var Seijaku = {
     } catch (e) { /* internal pages just stay as they are */ }
   },
 
+  /** The speaker mark: sound, mute, and the mark's tooltip. */
+  updateSpeaker(tab) {
+    let muted = false;
+    try {
+      muted = !!tab.browser?.audioMuted;
+    } catch (e) { /* mute state unknown */ }
+    tab.el.toggleAttribute("muted", muted);
+    tab.el.toggleAttribute("sound", !!tab._soundPlaying);
+    tab.speakerEl.title = muted ? "Unmute this tab" : "Mute this tab";
+  },
+
+  /** Clicking the speaker mark mutes or unmutes that tab. */
+  toggleMute(tab) {
+    let b = tab.browser;
+    if (!b) {
+      return;
+    }
+    try {
+      b.audioMuted = !b.audioMuted;
+      this.updateSpeaker(tab);
+    } catch (e) {
+      this.showMessage("Muting isn't available for this tab", "error");
+    }
+  },
+
   // -------------------------------------------------------------- sleeping
 
-  /** Puts a tab to sleep: frees its page, keeps its place and address. */
+  /** Ctrl+Shift+S: sleeps the current tab now, using the same
+     machinery as the 15-minute auto-sleep. The tab keeps its place
+     and address and reloads when clicked. */
+  sleepCurrentTab() {
+    let tab = this.selected;
+    if (!tab || tab.asleep || this.tabs.length < 2) {
+      return;
+    }
+    if (tab.pinned) {
+      this.showMessage("Pinned tabs don't sleep — unpin it first (Ctrl+Shift+P)");
+      return;
+    }
+    let index = this.tabs.indexOf(tab);
+    let neighbour = this.tabs[index > 0 ? index - 1 : 1];
+    this.selectTab(neighbour);
+    if (this.sleep(tab)) {
+      this.showMessage(`"${tab.title || tab.url}" asleep — click it to wake it`);
+    }
+    this.saveSession();
+  },
+
+  /** Puts a tab to sleep: frees its page, keeps its place and address.
+     Pinned tabs never sleep, by hand or by the timer. */
   sleep(tab) {
-    if (!tab || tab.asleep || tab === this.selected) {
+    if (!tab || tab.asleep || tab.pinned || tab === this.selected) {
       return false;
     }
     tab.browser.remove();
@@ -1581,11 +2809,15 @@ var Seijaku = {
   sessionData() {
     return {
       selected: this.tabs.indexOf(this.selected),
-      tabs: this.tabs.map(t => ({ url: t.url, title: t.title })),
+      tabs: this.tabs.map(t => ({ url: t.url, title: t.title, pinned: !!t.pinned })),
     };
   },
 
   saveSession() {
+    // A private window never writes the shared session file.
+    if (this.isPrivate) {
+      return;
+    }
     let path = this.sessionPath();
     if (!path) {
       return;
@@ -1594,6 +2826,10 @@ var Seijaku = {
   },
 
   restoreSession() {
+    // A private window never reads the shared session file.
+    if (this.isPrivate) {
+      return Promise.resolve(false);
+    }
     let path = this.sessionPath();
     if (!path) {
       return Promise.resolve(false);
@@ -1605,8 +2841,10 @@ var Seijaku = {
           return false;
         }
         for (let t of tabs) {
-          this.openTab(t.url, { asleep: true, title: t.title, background: true });
+          this.openTab(t.url, { asleep: true, title: t.title, background: true, pinned: !!t.pinned });
         }
+        // Restored pinned tabs sit first, the way they were saved.
+        this.orderTabs();
         // Only the selected tab loads now; the rest wake when clicked.
         let selected = this.tabs[Math.max(0, Math.min(data.selected ?? 0, this.tabs.length - 1))];
         this.selectTab(selected);
@@ -1630,11 +2868,623 @@ var Seijaku = {
     document.getElementById("message").hidden = true;
   },
 
+  // -------------------------------------------------------------- private windows
+  //
+  // Ctrl+Shift+N opens a window that shares bookmarks but nothing
+  // else: no restored session, no saved session, no history, the
+  // private downloads list, and a Private badge in the strip. The
+  // "private" window feature is what keeps it out of the singleton
+  // main window's way (opening the same chrome URI without it would
+  // just focus the existing window); the JSON argument carries the
+  // URL and is read back by initPrivateFlag. Bookmarks stay shared,
+  // the way Firefox does it.
+
+  openPrivateWindow(url) {
+    try {
+      let arg = Cc["@mozilla.org/supports-string;1"].createInstance(Ci.nsISupportsString);
+      arg.data = JSON.stringify({ url: url || this.homepage(), private: true });
+      Services.ww.openWindow(null, window.location.href, "_blank", "chrome,all,dialog=no,private", arg);
+    } catch (e) {
+      this.showMessage("Couldn't open a private window", "error");
+    }
+  },
+
+  // -------------------------------------------------------------- site permissions
+  //
+  // When a site asks for the camera, microphone, or notifications,
+  // the engine routes the request through the prompt component
+  // (shell/components/PermissionPrompt.js, registered in
+  // chrome.manifest), which hands it to queuePermissionRequest
+  // here. The prompt is a XUL panel at the top centre of the window
+  // — where the floating bar appears — with the site, what it wants,
+  // Allow / Block, and a remember checkbox. Remembered decisions
+  // live in seijaku-data.json next to bookmarks and history, and
+  // are also written to the engine's permission manager so the
+  // engine itself enforces them. The Settings allow-switch overrides
+  // everything: when it is on, sites get access at once with no
+  // prompt. Location is denied outright, by pref (geo.enabled) and
+  // again in the component — it never reaches a prompt.
+  // UNVERIFIED ON WINDOWS: the component registration step is the
+  // standard XUL-shell mechanism, but no Windows run has yet shown
+  // a prompt from a real camera test page. If prompts never appear,
+  // the allow-switch still works, and a denied request fails safe.
+
+  permissionTypeText(type) {
+    return {
+      camera: "use the camera",
+      microphone: "use the microphone",
+      "desktop-notification": "show notifications",
+      geolocation: "know your location",
+    }[type] || `use ${type}`;
+  },
+
+  permissionHost(url) {
+    try {
+      return Services.io.newURI(url).host || "";
+    } catch (e) {
+      return "";
+    }
+  },
+
+  getPermissionsFor(host) {
+    return (this._data?.permissions ?? {})[host] ?? {};
+  },
+
+  setPermission(host, type, value) {
+    if (!host || !this._data) {
+      return;
+    }
+    if (!this._data.permissions) {
+      this._data.permissions = {};
+    }
+    if (!this._data.permissions[host]) {
+      this._data.permissions[host] = {};
+    }
+    if (value) {
+      this._data.permissions[host][type] = value;
+    } else {
+      delete this._data.permissions[host][type];
+    }
+    this.saveData();
+    // The engine enforces remembered decisions itself too, so a
+    // remembered Allow does not re-prompt even if the store is
+    // somehow missed.
+    try {
+      let perms = Cc["@mozilla.org/permissionmanager;1"].getService(Ci.nsIPermissionManager);
+      let uri = Services.io.newURI("https://" + host);
+      if (value == "allow") {
+        perms.add(uri, type, Ci.nsIPermissionManager.ALLOW_ACTION);
+      } else if (value == "block") {
+        perms.add(uri, type, Ci.nsIPermissionManager.DENY_ACTION);
+      } else {
+        perms.remove(uri, type);
+      }
+    } catch (e) { /* the store alone still gates future prompts */ }
+    this.updatePermLock();
+  },
+
+  permissionAllowSwitchOn(type) {
+    try {
+      return Services.prefs.getIntPref(`permissions.default.${type}`, 0) == 1;
+    } catch (e) {
+      return false;
+    }
+  },
+
+  /** The prompt component's entry point: answer or queue. */
+  queuePermissionRequest(request, host, type) {
+    try {
+      if (!type) {
+        request.cancel();
+        return;
+      }
+      if (type == "geolocation") {
+        request.cancel();
+        return;
+      }
+      if (this.permissionAllowSwitchOn(type)) {
+        request.allow();
+        return;
+      }
+      let remembered = host ? this.getPermissionsFor(host)[type] : null;
+      if (remembered == "allow") {
+        request.allow();
+        return;
+      }
+      if (remembered == "block") {
+        request.cancel();
+        return;
+      }
+      this._permQueue.push({ request, host, type });
+      this.nextPermission();
+    } catch (e) {
+      try {
+        request.cancel();
+      } catch (_e) { /* already answered */ }
+    }
+  },
+
+  nextPermission() {
+    if (this._permActive || !this._permQueue.length) {
+      return;
+    }
+    let entry = this._permQueue.shift();
+    this._permActive = entry;
+    this.showPermissionPrompt(entry);
+  },
+
+  initPermissionPanel() {
+    document.getElementById("perm-allow").addEventListener("click", () =>
+      this.answerPermission(true, document.getElementById("perm-remember").checked)
+    );
+    document.getElementById("perm-block").addEventListener("click", () =>
+      this.answerPermission(false, document.getElementById("perm-remember").checked)
+    );
+    document.getElementById("perm-manage-close").addEventListener("click", () => {
+      try {
+        document.getElementById("perm-panel").hidePopup();
+      } catch (e) { /* already closed */ }
+    });
+    document.getElementById("perm-panel").addEventListener("popuphidden", () => {
+      // A panel closed without an answer (outside click) counts as
+      // Block for this time only — a request must always get one.
+      // _permActive is cleared before hidePopup in answerPermission,
+      // so an answered prompt never double-answers here.
+      if (this._permActive) {
+        let entry = this._permActive;
+        this._permActive = null;
+        try {
+          entry.request.cancel();
+        } catch (e) { /* the request went away */ }
+        this.nextPermission();
+      }
+    });
+  },
+
+  showPermissionPrompt(entry) {
+    let panel = document.getElementById("perm-panel");
+    document.getElementById("perm-prompt").hidden = false;
+    document.getElementById("perm-manage").hidden = true;
+    document.getElementById("perm-text").textContent =
+      `${entry.host || "This site"} wants to ${this.permissionTypeText(entry.type)}.`;
+    document.getElementById("perm-remember").checked = false;
+    try {
+      let width = 360;
+      let x = Math.max(0, window.screenX + Math.round((window.outerWidth - width) / 2));
+      panel.openPopupAtScreen(x, window.screenY + 48);
+    } catch (e) {
+      // A prompt that cannot show must still answer, or the site
+      // hangs: deny for this time.
+      this.answerPermission(false, false);
+    }
+  },
+
+  answerPermission(allow, remember) {
+    let entry = this._permActive;
+    if (!entry) {
+      return;
+    }
+    this._permActive = null;
+    try {
+      document.getElementById("perm-panel").hidePopup();
+    } catch (e) { /* already closed */ }
+    if (remember && entry.host) {
+      this.setPermission(entry.host, entry.type, allow ? "allow" : "block");
+    }
+    try {
+      if (allow) {
+        entry.request.allow();
+      } else {
+        entry.request.cancel();
+      }
+    } catch (e) { /* the request went away */ }
+    this.nextPermission();
+  },
+
+  /** The lock button: what this site may use, with Revoke buttons. */
+  updatePermLock() {
+    let lock = document.getElementById("perm-lock");
+    if (!lock) {
+      return;
+    }
+    let host = this.selected ? this.permissionHost(this.selected.url) : "";
+    let grants = host ? this.getPermissionsFor(host) : {};
+    let hasAny = Object.keys(grants).length > 0;
+    lock.hidden = !hasAny;
+    lock.title = hasAny
+      ? `Site permissions for ${host} — click to manage`
+      : "Site permissions for this site";
+  },
+
+  showPermissionManage() {
+    // A live prompt demands attention first; the lock waits.
+    if (this._permActive) {
+      return;
+    }
+    let host = this.selected ? this.permissionHost(this.selected.url) : "";
+    if (!host) {
+      return;
+    }
+    let panel = document.getElementById("perm-panel");
+    document.getElementById("perm-prompt").hidden = true;
+    let manage = document.getElementById("perm-manage");
+    manage.hidden = false;
+    document.getElementById("perm-manage-title").textContent = `Permissions for ${host}`;
+    let list = document.getElementById("perm-manage-list");
+    list.replaceChildren();
+    let grants = this.getPermissionsFor(host);
+    let types = Object.keys(grants);
+    if (!types.length) {
+      let empty = document.createElement("div");
+      empty.className = "muted";
+      empty.textContent = "Nothing granted or blocked yet.";
+      list.append(empty);
+    }
+    for (let type of types) {
+      let row = document.createElement("div");
+      row.className = "perm-manage-row";
+      let label = document.createElement("span");
+      label.textContent = `${this.permissionTypeText(type)}: ${grants[type]}`;
+      let revoke = document.createElement("button");
+      revoke.type = "button";
+      revoke.textContent = "Revoke";
+      revoke.addEventListener("click", () => {
+        this.setPermission(host, type, null);
+        this.showPermissionManage();
+      });
+      row.append(label, revoke);
+      list.append(row);
+    }
+    try {
+      let width = 360;
+      let x = Math.max(0, window.screenX + Math.round((window.outerWidth - width) / 2));
+      panel.openPopupAtScreen(x, window.screenY + 48);
+    } catch (e) { /* the manage view just doesn't open */ }
+  },
+
+  // -------------------------------------------------------------- extensions
+  //
+  // A real, minimal extension host. At startup the shell starts the
+  // engine's AddonManager, which loads enabled extensions from the
+  // profile; background scripts, storage, tabs, and webRequest
+  // blocking then work the way they do in Firefox, because they are
+  // engine-level. The manager page (seijaku:extensions) lists them
+  // with enable/disable/remove and install-from-file. A navigation
+  // to a .xpi file installs it; .crx stays refused (see load).
+  // BrowserAction buttons: for each enabled extension the shell
+  // reads its manifest (through the extension's own moz-extension
+  // origin, which the shell's system principal may load) and, when
+  // it declares a browser_action, puts a button in the strip; the
+  // button opens the action's popup in a panel. If any of that
+  // fails, the extension still runs headless — blocking does not
+  // need a button.
+  // UNVERIFIED ON WINDOWS: this is the riskiest item in the batch.
+  // AddonManager.startup in a bare shell, the tabs API's view of a
+  // seijaku:main window, and popup rendering can only be proven by
+  // installing uBlock Origin on Windows. Every step is guarded, so
+  // a missing extension system leaves startup untouched.
+
+  async initExtensions() {
+    try {
+      let { AddonManager } = ChromeUtils.importESModule(
+        "resource://gre/modules/AddonManager.sys.mjs"
+      );
+      this._AddonManager = AddonManager;
+      await AddonManager.startup();
+      this._extReady = true;
+      try {
+        AddonManager.addAddonListener({
+          onInstalled: () => this.refreshExtensionButtons().catch(() => {}),
+          onUninstalled: () => this.refreshExtensionButtons().catch(() => {}),
+          onEnabled: () => this.refreshExtensionButtons().catch(() => {}),
+          onDisabled: () => this.refreshExtensionButtons().catch(() => {}),
+        });
+      } catch (e) { /* buttons just won't auto-refresh */ }
+      this.refreshExtensionButtons().catch(() => {});
+    } catch (e) {
+      this._extReady = false;
+    }
+  },
+
+  async getExtensions() {
+    try {
+      let addons = await this._AddonManager.getAddonsByTypes(["extension"]);
+      return addons.map(a => ({
+        id: a.id,
+        name: a.name,
+        version: a.version,
+        description: a.description || "",
+        enabled: !a.userDisabled,
+        iconURL: a.iconURL || "",
+      }));
+    } catch (e) {
+      return [];
+    }
+  },
+
+  async extensionById(id) {
+    try {
+      return await this._AddonManager.getAddonByID(id);
+    } catch (e) {
+      return null;
+    }
+  },
+
+  async setExtensionEnabled(id, enabled) {
+    let addon = await this.extensionById(id);
+    if (addon) {
+      addon.userDisabled = !enabled;
+    }
+    this.refreshExtensionButtons().catch(() => {});
+  },
+
+  async uninstallExtension(id) {
+    let addon = await this.extensionById(id);
+    if (addon) {
+      await addon.uninstall();
+    }
+    this.refreshExtensionButtons().catch(() => {});
+  },
+
+  async installExtensionFromFile() {
+    // The manager page calls this; the picker runs here so the
+    // page never touches engine objects. The shipped engine's picker
+    // is Promise-based; a cancel just rejects quietly.
+    let picker = Cc["@mozilla.org/filepicker;1"].createInstance(Ci.nsIFilePicker);
+    picker.init(window, "Install extension", Ci.nsIFilePicker.modeOpen);
+    picker.appendFilter("Firefox extensions (*.xpi)", "*.xpi");
+    let result = await picker.open();
+    if (result != Ci.nsIFilePicker.returnOK || !picker.file) {
+      // Worded so the manager page's quiet-cancel heuristic (it
+      // silences rejections mentioning cancel/abort) treats a
+      // dismissed picker as a non-error, not a failure.
+      throw new Error("Install cancelled — no file chosen");
+    }
+    return this.installExtensionFile(picker.file);
+  },
+
+  async installExtensionFile(file) {
+    let install = await this._AddonManager.getInstallForFile(file);
+    await install.install();
+    await this.refreshExtensionButtons().catch(() => {});
+    return install.addon?.name || file.leafName || "Extension";
+  },
+
+  async installXpiUrl(url) {
+    this.showMessage("Installing extension…");
+    try {
+      let tmp = Services.dirsvc.get("TmpD", Ci.nsIFile);
+      let file = tmp.clone();
+      file.append("seijaku-extension.xpi");
+      await this.downloadToFile(url, file);
+      let name = await this.installExtensionFile(file);
+      this.showMessage(`Installed ${name}`);
+    } catch (e) {
+      this.showMessage(`Couldn't install that extension: ${e.message}`, "error");
+    }
+  },
+
+  /** The extension's browser_action, if it declares one. */
+  async extensionBrowserAction(addon) {
+    try {
+      let { ExtensionPolicyService } = ChromeUtils.importESModule(
+        "resource://gre/modules/ExtensionPolicyService.sys.mjs"
+      );
+      let policy = ExtensionPolicyService.getExtensionPolicy(addon.id);
+      let host = policy?.mozExtensionHostname;
+      if (!host) {
+        return null;
+      }
+      let manifest = await (await fetch(`moz-extension://${host}/manifest.json`)).json();
+      let action = manifest.browser_action || manifest.action;
+      if (!action) {
+        return null;
+      }
+      let icon = action.default_icon;
+      if (icon && typeof icon == "object") {
+        icon = icon[48] || icon[32] || icon[16] || Object.values(icon)[0];
+      }
+      return {
+        icon: icon ? `moz-extension://${host}/${icon}` : "",
+        popup: action.default_popup ? `moz-extension://${host}/${action.default_popup}` : "",
+        title: action.default_title || addon.name,
+      };
+    } catch (e) {
+      return null;
+    }
+  },
+
+  async refreshExtensionButtons() {
+    let container = document.getElementById("ext-buttons");
+    if (!container) {
+      return;
+    }
+    container.replaceChildren();
+    if (!this._extReady) {
+      return;
+    }
+    let addons = [];
+    try {
+      addons = (await this._AddonManager.getAddonsByTypes(["extension"])).filter(a => !a.userDisabled);
+    } catch (e) {
+      return;
+    }
+    for (let addon of addons) {
+      let action = await this.extensionBrowserAction(addon);
+      if (!action) {
+        continue;
+      }
+      let button = document.createElement("button");
+      button.className = "ext-button";
+      button.title = action.title;
+      if (action.icon) {
+        let img = document.createElement("img");
+        img.src = action.icon;
+        img.alt = "";
+        button.append(img);
+      } else {
+        button.textContent = (addon.name || "?").slice(0, 1).toUpperCase();
+      }
+      button.addEventListener("click", () => this.showExtensionPopup(button, action));
+      container.append(button);
+    }
+  },
+
+  showExtensionPopup(button, action) {
+    let panel = document.getElementById("ext-popup-panel");
+    if (this._extPopupFor == button) {
+      try {
+        panel.hidePopup();
+      } catch (e) { /* already closed */ }
+      this._extPopupFor = null;
+      return;
+    }
+    this._extPopupFor = button;
+    if (action.popup) {
+      try {
+        document.getElementById("ext-popup-browser").setAttribute("src", action.popup);
+      } catch (e) { /* the panel opens empty */ }
+    }
+    try {
+      panel.openPopup(button, "after_start");
+    } catch (e) {
+      this._extPopupFor = null;
+    }
+    let onHidden = () => {
+      this._extPopupFor = null;
+      panel.removeEventListener("popuphidden", onHidden);
+    };
+    panel.addEventListener("popuphidden", onHidden);
+  },
+
+  // -------------------------------------------------------------- reader view
+  //
+  // The reader button in the floating bar turns the current page
+  // into a clean article: the engine's own Readability module does
+  // the extraction (the same module Firefox's reader mode uses), and
+  // seijaku:reader renders it with font-size controls. If Readability
+  // is missing in the shipped engine, a naive fallback takes the
+  // element with the most paragraph text. The article is held on the
+  // shell for the reader page to read; it is never written to disk.
+
+  openReader() {
+    let b = this.selectedBrowser;
+    if (!b) {
+      return;
+    }
+    let doc = null;
+    try {
+      doc = b.contentWindow.document;
+    } catch (e) {
+      this.showMessage("Reader view isn't available on this page", "error");
+      return;
+    }
+    let article = null;
+    try {
+      let { Readability } = ChromeUtils.importESModule(
+        "resource://gre/modules/Readability.sys.mjs"
+      );
+      article = new Readability(doc.cloneNode(true)).parse();
+    } catch (e) { /* fall through to the naive extraction */ }
+    if (!article?.content) {
+      try {
+        article = this.naiveArticle(doc);
+      } catch (e) {
+        article = null;
+      }
+    }
+    if (!article?.content) {
+      this.showMessage("No readable article on this page", "error");
+      return;
+    }
+    this._readerArticle = {
+      title: article.title || this.selected?.title || "",
+      byline: article.byline || "",
+      content: article.content,
+      url: this.selected?.url || "",
+    };
+    // Always a fresh reader tab: openPage would select an existing
+    // reader tab, which already rendered and would show the OLD
+    // article. The old reader tab goes away once the new one exists
+    // (closing it first could close the window if it was the only tab).
+    let existing = this.tabs.find(t => t.url?.split("#")[0] == "seijaku:reader");
+    this.openTab("seijaku:reader", { afterCurrent: true });
+    if (existing && this.tabs.length > 1) {
+      this.closeTab(existing);
+    }
+  },
+
+  naiveArticle(doc) {
+    let best = null;
+    let bestText = 0;
+    let candidates = doc.querySelectorAll("article, main, [role='main']");
+    let roots = candidates.length ? [...candidates] : [doc.body];
+    for (let root of roots) {
+      let text = root?.innerText?.length ?? 0;
+      if (text > bestText) {
+        bestText = text;
+        best = root;
+      }
+    }
+    if (!best || bestText < 200) {
+      return null;
+    }
+    return { title: doc.title || "", byline: "", content: best.innerHTML };
+  },
+
+  getReaderArticle() {
+    return this._readerArticle;
+  },
+
+  // -------------------------------------------------------------- PDF bytes
+  //
+  // The viewer page never fetches a PDF itself: a chrome page
+  // fetching an arbitrary http URL would hit CORS, and a file URL
+  // would hit local-file rules. The shell fetches with the system
+  // principal instead, which bypasses both, and hands the bytes to
+  // the viewer. Saving goes the same way: the viewer builds the
+  // annotated file with pdf-lib and the shell writes it into the
+  // Downloads folder.
+
+  async fetchPdfBytes(url) {
+    let response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Couldn't fetch the PDF (${response.status})`);
+    }
+    let bytes = new Uint8Array(await response.arrayBuffer());
+    // Plain data crosses compartments safely; the viewer page
+    // normalizes with new Uint8Array() before handing the bytes to
+    // pdf.js (whose instanceof checks would fail on a wrapped array).
+    return bytes;
+  },
+
+  async downloadPdfBytes(filename, bytes) {
+    let safe = String(filename).replace(/[\\/:*?"<>|]/g, "_") || "annotated.pdf";
+    // Normalize into this compartment: bytes arriving from a page
+    // fail instanceof checks here, but the constructor copies them.
+    let data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+    let dir = Services.dirsvc.get("DfltDwnld", Ci.nsIFile);
+    let file = dir.clone();
+    file.append(safe);
+    let { IOUtils } = ChromeUtils.importESModule("resource://gre/modules/IOUtils.sys.mjs");
+    await IOUtils.write(file.path, data);
+    this.showMessage(`Saved ${safe}`);
+  },
+
   // -------------------------------------------------------------- events
 
   handleEvent(event) {
     switch (event.type) {
       case "mousedown": {
+        // The speaker mark mutes without switching to the tab.
+        if (event.target.closest(".tab-speaker")) {
+          let tab = event.target.closest(".tab")?.tab;
+          if (tab) {
+            this.toggleMute(tab);
+          }
+          event.preventDefault();
+          break;
+        }
         let tab = event.target.closest(".tab")?.tab;
         if (tab && event.button == 0) {
           this.selectTab(tab);
@@ -1657,23 +3507,38 @@ var Seijaku = {
         break;
       }
       case "keydown": {
-        // Escape closes the find bar, and only the find bar: it is the
-        // one piece of chrome UI that a page must never be able to
-        // swallow, and it never reaches pages from here.
+        // Escape closes chrome UI, never a page: it is the one piece
+        // of chrome UI that a page must never be able to swallow,
+        // and it never reaches pages from here. A permission prompt
+        // dismissed with Escape counts as Block for this time only
+        // (never remembered) — a request must always get an answer.
+        if (event.key == "Escape" && this._permActive) {
+          this.answerPermission(false, false);
+        }
         if (event.key == "Escape" && !document.getElementById("findbar").hidden) {
           this.hideFindBar();
+        }
+        if (event.key == "Escape") {
+          try {
+            document.getElementById("ext-popup-panel").hidePopup();
+          } catch (e) { /* no popup open */ }
         }
         break;
       }
       case "mousemove": {
-        // Auto-hide chrome: the top edge reveals, the page hides.
-        // Only acts when the state would change, so the steady
-        // stream of moves costs nothing.
+        // Fallback reveal only: the #edge-strip mouseenter in init
+        // is the real reveal path, because page mouse events never
+        // reach this window at all. This covers the pointer already
+        // sitting over chrome at the placement edge.
         if (this._autohide) {
-          if (event.clientY <= 4) {
+          let position = this.pref("tabs.position", "top");
+          let atEdge =
+            (position == "top" && event.clientY <= 4) ||
+            (position == "bottom" && event.clientY >= window.innerHeight - 4) ||
+            (position == "left" && event.clientX <= 4) ||
+            (position == "right" && event.clientX >= window.innerWidth - 4);
+          if (atEdge) {
             this.showChrome();
-          } else if (document.getElementById("content")?.contains(event.target)) {
-            this.hideChrome();
           }
         }
         break;
@@ -1698,10 +3563,14 @@ var Seijaku = {
 /** Keyboard shortcuts. Reserved, so pages can't take them over. */
 var Keys = {
   bindings: [
-    ["t", "accel", () => Seijaku.newTab()],
+    ["t", "accel", () => Seijaku.newTabWithBar()],
     ["w", "accel", () => Seijaku.closeTab()],
     ["t", "accel,shift", () => Seijaku.undoCloseTab()],
-    ["l", "accel", () => Seijaku.$addressbar.focus()],
+    ["l", "accel", () => Seijaku.showFloatingBar()],
+    ["k", "accel", () => Seijaku.showPalette()],
+    ["p", "accel,shift", () => Seijaku.togglePinCurrent()],
+    ["n", "accel,shift", () => Seijaku.openPrivateWindow()],
+    ["s", "accel,shift", () => Seijaku.sleepCurrentTab()],
     ["r", "accel", () => Seijaku.selectedBrowser?.reload()],
     ["f", "accel", () => Seijaku.showFindBar()],
     ["=", "accel", () => Seijaku.zoom(0.1)],
