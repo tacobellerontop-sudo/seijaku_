@@ -28,6 +28,12 @@ pref("layers.acceleration.disabled", false);
    rename is the first suspect. */
 pref("media.eme.enabled", true);
 pref("media.gmp-widevinecdm.enabled", true);
+/* The update channel Widevine's download needs: Firefox sets this in
+   its own channel-prefs.js, which lives in the front end the packager
+   drops — so without this line the GMP download request goes out with
+   an empty channel, Mozilla's server returns nothing, and the CDM
+   never downloads (a DRM tester then reports Widevine not found). */
+pref("app.update.channel", "release");
 
 /* Stripped Mozilla services: see docs/STRIPPED.md for why each is here.
    Every one of these is a background task, a network call, or a bundled
