@@ -155,6 +155,53 @@ window.addEventListener("DOMContentLoaded", () => {
       flashSaved();
     } catch (e) {}
   });
+  // Protected video: Widevine is downloaded on demand through the
+  // shell (the page never touches the GMP service itself). The
+  // button is safe to press twice: a second press while one is
+  // running just waits for the same download, and once installed
+  // it does nothing. Errors show verbatim, never a generic failure.
+  let wvStatus = document.getElementById("widevine-status");
+  let wvNote = document.getElementById("widevine-note");
+  let wvButton = document.getElementById("setting-widevine-install");
+  let renderWv = status => {
+    if (status?.installed) {
+      wvStatus.textContent = `Ready — Widevine ${status.version}`;
+      wvNote.hidden = false;
+    } else {
+      wvStatus.textContent = "Not installed";
+      wvNote.hidden = true;
+    }
+  };
+  try {
+    renderWv(shellWindow()?.Seijaku?.widevineStatus());
+  } catch (e) {
+    wvStatus.textContent = "Not installed";
+  }
+  wvButton.addEventListener("click", async () => {
+    let shell = shellWindow()?.Seijaku;
+    if (!shell?.installWidevine) {
+      wvStatus.textContent = "Failed: Couldn't reach the browser.";
+      return;
+    }
+    try {
+      if (shell.widevineStatus()?.installed) {
+        renderWv(shell.widevineStatus());
+        return;
+      }
+    } catch (e) { /* fall through to the download below */ }
+    wvButton.disabled = true;
+    wvStatus.textContent = "Downloading…";
+    wvNote.hidden = true;
+    try {
+      await shell.installWidevine();
+      renderWv(shell.widevineStatus());
+    } catch (e) {
+      wvStatus.textContent = `Failed: ${e.message || e}`;
+      wvNote.hidden = true;
+    } finally {
+      wvButton.disabled = false;
+    }
+  });
   // Clear browsing data goes through the shell (the page never
   // touches the cookie or cache services itself).
   document.getElementById("setting-clear-data").addEventListener("click", () => {

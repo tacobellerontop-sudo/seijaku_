@@ -135,6 +135,12 @@
       above — or the system Downloads folder when the field is empty.</span>
     </label>
 
+    <h2>protected video</h2>
+    <p class="muted">Netflix, Disney+, Spotify and the like play through Google's Widevine, downloaded from Mozilla (about 10 MB) when you press the button. The browser's automatic check never runs on its own here, so this button asks for it now instead of waiting.</p>
+    <p id="widevine-status" class="muted"></p>
+    <p><button id="setting-widevine-install" type="button">Download Widevine</button></p>
+    <p id="widevine-note" class="muted" hidden="hidden">Pages that already asked for protected video need a reload.</p>
+
     <h2>weather</h2>
     <p class="muted">The home page's weather widget, from Open-Meteo (no account, no key). Changing the city re-geocodes it on the next home page load.</p>
     <label>

@@ -12,13 +12,14 @@ const { E10SUtils } = ChromeUtils.importESModule(
   "resource://gre/modules/E10SUtils.sys.mjs"
 );
 const Theme = ChromeUtils.importESModule("resource://seijaku/Theme.sys.mjs");
+const Widevine = ChromeUtils.importESModule("resource://seijaku/Widevine.sys.mjs");
 
 const PREF = "seijaku.";
 const SESSION_FILE = "seijaku-session.json";
 const DATA_FILE = "seijaku-data.json";
 const HISTORY_LIMIT = 1000;
 const MESSAGE_MS = 4000;
-const SEIJAKU_VERSION = "0.2.3";
+const SEIJAKU_VERSION = "0.2.4";
 const UPDATE_REPO = "tacobellerontop-sudo/seijaku_";
 const UPDATE_CHECK_MS = 24 * 60 * 60 * 1000;
 
@@ -2328,6 +2329,31 @@ var Seijaku = {
       }
     } catch (e) { /* fall through to the engine default */ }
     return Services.dirsvc.get("DfltDwnld", Ci.nsIFile);
+  },
+
+  /** Protected video, for the Settings page: whether Widevine is
+      installed and which version. The page never touches the GMP
+      service itself — it asks here. */
+  widevineStatus() {
+    try {
+      return { installed: Widevine.installed(), version: Widevine.version() };
+    } catch (e) { /* an unreadable pref reads as not installed */ }
+    return { installed: false, version: "" };
+  },
+
+  /** Protected video, for the Settings page: downloads Widevine on
+      demand (the automatic check never fires on this shell's
+      profiles, so the button forces it now). Throws the real error
+      when the server offers nothing or the install doesn't stick;
+      a second call while one is running just awaits the same
+      download, so pressing the button twice is safe. */
+  async installWidevine() {
+    Widevine.allow(true);
+    let ready = await Widevine.install();
+    if (!ready) {
+      throw new Error("Widevine downloaded but is still not ready");
+    }
+    return true;
   },
 
   // -------------------------------------------------------------- floating URL bar
