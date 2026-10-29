@@ -1,7 +1,7 @@
 /* Seijaku: a lean browser shell on Gecko. Tabs, an address line, a home
-   page, settings, tab sleeping, and auto-update. Nothing else on
-   purpose: no mods, no extensions host, no accounts, no services, no
-   command bar. See docs/PLAN.md. */
+   page, settings, tab sleeping, auto-update, find, zoom, and themes.
+   Nothing else on purpose: no mods, no extensions host, no accounts,
+   no services, no command bar. See docs/PLAN.md. */
 
 "use strict";
 
@@ -13,7 +13,7 @@ const Theme = ChromeUtils.importESModule("resource://seijaku/Theme.sys.mjs");
 const PREF = "seijaku.";
 const SESSION_FILE = "seijaku-session.json";
 const MESSAGE_MS = 4000;
-const SEIJAKU_VERSION = "0.1.10";
+const SEIJAKU_VERSION = "0.2.0";
 const UPDATE_REPO = "tacobellerontop-sudo/seijaku_";
 const UPDATE_CHECK_MS = 24 * 60 * 60 * 1000;
 
@@ -45,17 +45,10 @@ class Tab {
     this.el.setAttribute("role", "tab");
     this.labelEl = document.createElement("span");
     this.labelEl.className = "tab-label";
-    this.closeEl = document.createElement("button");
-    this.closeEl.className = "tab-close";
-    this.closeEl.textContent = "\u00d7";
-    this.closeEl.title = "Close tab (Ctrl+W)";
-    this.closeEl.tabIndex = -1;
-    this.closeEl.addEventListener("mousedown", event => event.stopPropagation());
-    this.closeEl.addEventListener("click", event => {
-      event.stopPropagation();
-      Seijaku.closeTab(this);
-    });
-    this.el.append(this.labelEl, this.closeEl);
+    // No close button on purpose: a tab closes with a double-click
+    // (or Ctrl+W, or middle-click). One less control per tab keeps the
+    // strip quiet, and the strip is where the eye lives.
+    this.el.append(this.labelEl);
     this.el.tab = this;
     Object.defineProperty(this.el, "linkedBrowser", { get: () => this.browser });
     this.browser = null;
@@ -115,8 +108,12 @@ var Seijaku = {
     this.applyTheme();
     Services.prefs.addObserver(PREF, this);
     this.initTitlebar();
+    this.initBrowserDOMWindow();
+    this.applyChromeAutohide();
     this.$tabbar.addEventListener("mousedown", this);
     this.$tabbar.addEventListener("auxclick", this);
+    this.$tabbar.addEventListener("dblclick", this);
+    this.initFindBar();
     document.getElementById("nav-back").addEventListener("click", () => this.selectedBrowser?.goBack());
     document.getElementById("nav-forward").addEventListener("click", () => this.selectedBrowser?.goForward());
     document.getElementById("nav-reload").addEventListener("click", () => this.selectedBrowser?.reload());
@@ -124,11 +121,27 @@ var Seijaku = {
     document.getElementById("toolbar-menu").addEventListener("click", () => this.openPage("settings"));
     this.initAddressBar();
     window.addEventListener("keydown", this, true);
+    window.addEventListener("mousemove", this);
     window.addEventListener("unload", this);
     Keys.install();
+    // A link clicked elsewhere while Seijaku runs arrives as a remote
+    // command line; without a handler of its own, the shell learns
+    // about it here instead (see launchURL below).
+    try {
+      Services.obs.addObserver(this, "commandline-args-changed");
+    } catch (e) { /* remote links just open a new window instead */ }
 
+    // A launched link beats the home page: it opens as the first tab
+    // on a cold start, or as a new tab after a restored session.
+    let launch = this.launchURL();
     this.restoreSession().then(restored => {
-      if (!restored) {
+      if (launch) {
+        let target = launch;
+        try {
+          target = this.urlFor(launch);
+        } catch (e) { /* keep the raw launch address */ }
+        this.openTab(target, { afterCurrent: true });
+      } else if (!restored) {
         this.openTab(this.homepage());
       }
     });
@@ -357,8 +370,30 @@ var Seijaku = {
   },
 
   observe(subject, topic, data) {
+    // A link clicked while Seijaku runs: open it in a new tab here
+    // and bring this window forward, instead of leaving the user on
+    // whatever page was already open.
+    if (topic == "commandline-args-changed") {
+      try {
+        let url = subject?.QueryInterface
+          ? this.launchURLFromCommandLine(subject.QueryInterface(Ci.nsICommandLine))
+          : null;
+        if (url) {
+          let target = url;
+          try {
+            target = this.urlFor(url);
+          } catch (e) { /* keep the raw address */ }
+          this.openTab(target, { afterCurrent: true });
+          window.focus();
+        }
+      } catch (e) { /* a remote link just doesn't open */ }
+      return;
+    }
     if (topic == "nsPref:changed" && data.startsWith(PREF)) {
       this.applyTheme();
+      if (data == PREF + "chrome.autohide") {
+        this.applyChromeAutohide();
+      }
       // The Settings page has no way to call into this window, so it
       // asks for an update by flipping this pref instead.
       if (data == PREF + "update.installNow") {
@@ -373,7 +408,149 @@ var Seijaku = {
   },
 
   applyTheme() {
-    Theme.applyColors(document.documentElement, this.pref("theme", "ink"));
+    // A custom theme is three colours from prefs; everything else
+    // falls back to ink, so a custom theme can never come out unreadable.
+    let custom = {
+      barBg: this.pref("theme.custom.barBg", "#171310"),
+      fg: this.pref("theme.custom.fg", "#ece4d3"),
+      accent: this.pref("theme.custom.accent", "#d8442a"),
+    };
+    Theme.applyColors(document.documentElement, this.pref("theme", "ink"), custom);
+  },
+
+  // -------------------------------------------------------------- taskbar
+  //
+  // The taskbar button is not the exe's icon and not the branding
+  // package: Windows groups the button by AppUserModelID and takes the
+  // icon from the shortcut that matches that ID. So Seijaku sets one
+  // stable ID on its window here, and the installer puts the identical
+  // ID (plus the seal icon) on its shortcuts. Either half alone is
+  // what "still Firefox" looked like. The window-icon file and the
+  // branding package stay, but neither fixes the button by itself.
+  // If this service is missing in the shipped engine, nothing breaks:
+  // the button just falls back to the old behaviour.
+
+  setAppUserModelId() {
+    try {
+      if (Services.appinfo.OS != "WINNT") {
+        return;
+      }
+      let taskbar = Cc["@mozilla.org/windows-taskbar;1"].getService(Ci.nsIWinTaskbar);
+      taskbar.setGroupIdForWindow(window, "Seijaku.Seijaku");
+    } catch (e) { /* the button keeps its old grouping */ }
+  },
+
+  // -------------------------------------------------------------- popups
+  //
+  // A window.open that did nothing was the expected symptom of a
+  // shell that gives Gecko nowhere to put the new window. The chrome
+  // window answers for its pages through nsIBrowserDOMWindow, so this
+  // is Seijaku's: every request maps onto a tab, which is the shell's
+  // policy already (open_newwindow=3 with restriction=0 diverts even
+  // feature popups to tabs). It returns the new tab's content window,
+  // because a caller that gets nothing back experiences exactly
+  // "popup did nothing". Two assignment points are documented for
+  // this object and they disagree, so both are set; each is guarded,
+  // so a missing interface in the shipped engine just leaves popups
+  // as they were instead of breaking the shell.
+
+  initBrowserDOMWindow() {
+    let provider;
+    try {
+      provider = {
+        QueryInterface: ChromeUtils.generateQI([Ci.nsIBrowserDOMWindow]),
+        openURI(uri, opener, where) {
+          return Seijaku.openPopup(uri, where);
+        },
+        openURIInFrame(uri, opener, where) {
+          return Seijaku.openPopup(uri, where);
+        },
+        isTabContentWindow(win) {
+          try {
+            return Seijaku.tabs.some(t => t.browser?.contentWindow == win);
+          } catch (e) {
+            return false;
+          }
+        },
+        createNewWindow(uri, opener, where) {
+          return Seijaku.openPopup(uri, where);
+        },
+      };
+    } catch (e) {
+      return;
+    }
+    try {
+      window.QueryInterface(Ci.nsIDOMChromeWindow).browserDOMWindow = provider;
+    } catch (e) { /* the other assignment may still work */ }
+    try {
+      window.browserDOMWindow = provider;
+    } catch (e) { /* assignment is best-effort */ }
+  },
+
+  openPopup(uri, where) {
+    let url = "";
+    try {
+      url = uri?.spec ?? String(uri ?? "");
+    } catch (e) {
+      return null;
+    }
+    if (!url) {
+      return null;
+    }
+    try {
+      if (where == Ci.nsIBrowserDOMWindow.OPEN_CURRENTWINDOW && this.selectedBrowser) {
+        this.load(this.selectedBrowser, url);
+        return this.selectedBrowser?.contentWindow ?? null;
+      }
+      let tab = this.openTab(url, { afterCurrent: true });
+      return tab.browser?.contentWindow ?? null;
+    } catch (e) {
+      return null;
+    }
+  },
+
+  // -------------------------------------------------------------- auto-hide chrome
+  //
+  // An opt-in "just the page" mode: with seijaku.chrome.autohide on,
+  // the three top rows (title bar, tab strip, address line) collapse
+  // and only a 2px vermilion line stays at the very top edge — the
+  // selected tab's underline colour, with nothing else. Moving the
+  // mouse to the very top edge brings the rows back; moving it onto
+  // the page hides them again. Ctrl+Shift+H flips the setting, so
+  // the mode can always be left from the keyboard too.
+
+  applyChromeAutohide() {
+    try {
+      this._autohide = Services.prefs.getBoolPref("seijaku.chrome.autohide", false);
+    } catch (e) {
+      this._autohide = false;
+    }
+    if (this._autohide) {
+      document.documentElement.setAttribute("autohide", "true");
+      this.hideChrome();
+    } else {
+      document.documentElement.removeAttribute("autohide");
+      document.documentElement.removeAttribute("chrome-hidden");
+    }
+  },
+
+  showChrome() {
+    document.documentElement.removeAttribute("chrome-hidden");
+  },
+
+  hideChrome() {
+    if (this._autohide) {
+      document.documentElement.setAttribute("chrome-hidden", "true");
+    }
+  },
+
+  toggleChromeAutohide() {
+    try {
+      Services.prefs.setBoolPref(
+        "seijaku.chrome.autohide",
+        !Services.prefs.getBoolPref("seijaku.chrome.autohide", false)
+      );
+    } catch (e) { /* the setting just doesn't flip */ }
   },
 
   initTitlebar() {
@@ -382,6 +559,7 @@ var Seijaku = {
     // is also on the <html> element in seijaku.xhtml; setting it here too
     // covers the case where the document is reloaded.
     document.documentElement.setAttribute("customtitlebar", "true");
+    this.setAppUserModelId();
     // One chrome row, Ryoku-style: the tabs live in the title bar row,
     // after the seal and before the window buttons. The window title is
     // redundant once tabs carry their own titles, so it is hidden. If
@@ -418,6 +596,69 @@ var Seijaku = {
 
   homepage() {
     return this.pref("homepage", "seijaku:home") || "about:blank";
+  },
+
+  // -------------------------------------------------------------- launched links
+  //
+  // Why a default-browser link used to land on the home page: the
+  // installer passes the address, but nothing in the shell ever read
+  // it, so the window just opened its default page. A registered
+  // command-line handler component would be the textbook fix, but
+  // registering one in the shipped, signed engine is unconfirmed
+  // (current docs call chrome.manifest registration deprecated), so
+  // the shell reads the launch address itself instead. Every read
+  // here is guarded: if none of these sources exists in the shipped
+  // engine, the shell behaves exactly as before — it cannot fail to
+  // start over a link it cannot read.
+
+  /** A web address from a command line, or null. Engine flags, paths
+     and option values can never pass: only a real web address, or a
+     bare dotted address, counts. */
+  launchURLFromCommandLine(cmdLine) {
+    try {
+      let urlFlag = cmdLine.findFlag("url", false);
+      if (urlFlag >= 0 && urlFlag + 1 < cmdLine.length) {
+        let value = cmdLine.getArgument(urlFlag + 1);
+        if (/^(https?|ftp):\/\//i.test(value)) {
+          return value;
+        }
+      }
+      for (let i = 0; i < cmdLine.length; i++) {
+        let value = cmdLine.getArgument(i);
+        if (/^(https?|ftp):\/\//i.test(value)) {
+          return value;
+        }
+        // A bare address (example.com, localhost:3000): paths are
+        // excluded by the backslash test, flags by the dash test.
+        if (
+          !value.startsWith("-") &&
+          !value.includes("\\") &&
+          (/^[a-z0-9-]+(\.[a-z0-9-]+)+(:\d+)?(\/\S*)?$/i.test(value) ||
+            /^localhost(:\d+)?(\/\S*)?$/.test(value))
+        ) {
+          return value;
+        }
+      }
+    } catch (e) { /* no usable launch address */ }
+    return null;
+  },
+
+  /** A web address this window was launched with, or null. */
+  launchURL() {
+    try {
+      for (let arg of window.arguments || []) {
+        let value = typeof arg == "string" ? arg : arg?.data;
+        if (value && /^(https?|ftp):\/\//i.test(value)) {
+          return value;
+        }
+      }
+    } catch (e) { /* fall through to the command line */ }
+    try {
+      let cmdLine = Cc["@mozilla.org/toolkit/command-line;1"].getService(Ci.nsICommandLine);
+      return this.launchURLFromCommandLine(cmdLine);
+    } catch (e) {
+      return null;
+    }
   },
 
   newTab() {
@@ -680,6 +921,16 @@ var Seijaku = {
   },
 
   load(browser, url, { triggeringPrincipal } = {}) {
+    // Extension filter, kept tiny: Seijaku has no extension host, so
+    // an extension could never run here — it would only be dead
+    // weight. Direct loads of extension files are refused with a plain
+    // explanation instead of pretending to install them. (Files linked
+    // from a page just download and never run, for the same reason.)
+    let bare = String(url).split(/[?#]/, 1)[0].toLowerCase();
+    if (bare.endsWith(".xpi") || bare.endsWith(".crx")) {
+      this.showMessage("Extensions don't run in Seijaku — there is no extension host to run them in", "error");
+      return;
+    }
     url = realURL(url);
     let uri;
     try {
@@ -752,6 +1003,83 @@ var Seijaku = {
       return;
     }
     this.openTab(last.url, { index: Math.min(last.index, this.tabs.length) });
+  },
+
+  // -------------------------------------------------------------- find, zoom
+  //
+  // Both ride on the page itself, so they cost nothing when unused:
+  // find uses the content window's own text search, zoom uses the
+  // page's document viewer. No extra processes, no extra UI until
+  // asked for.
+
+  initFindBar() {
+    let input = document.getElementById("find-input");
+    input.addEventListener("keydown", event => {
+      if (event.key == "Enter") {
+        this.findInPage(event.shiftKey);
+        event.preventDefault();
+      }
+    });
+  },
+
+  showFindBar() {
+    let bar = document.getElementById("findbar");
+    bar.hidden = false;
+    let input = document.getElementById("find-input");
+    input.focus();
+    input.select();
+  },
+
+  hideFindBar() {
+    document.getElementById("findbar").hidden = true;
+    try {
+      this.selectedBrowser?.contentWindow?.getSelection()?.removeAllRanges();
+    } catch (e) { /* clearing a highlight is never worth an error */ }
+  },
+
+  findInPage(backwards = false) {
+    let term = document.getElementById("find-input").value;
+    if (!term) {
+      return;
+    }
+    let win = this.selectedBrowser?.contentWindow;
+    if (!win) {
+      return;
+    }
+    let found = false;
+    try {
+      found = win.find(term, false, backwards, true, false, false, false);
+    } catch (e) {
+      this.showMessage("Find isn't available on this page", "error");
+      return;
+    }
+    if (!found) {
+      this.showMessage(`"${term}" not found`);
+    }
+  },
+
+  zoom(step) {
+    let b = this.selectedBrowser;
+    if (!b) {
+      return;
+    }
+    try {
+      let viewer = b.markupDocumentViewer;
+      viewer.fullZoom = Math.min(3, Math.max(0.3, Math.round((viewer.fullZoom + step) * 10) / 10));
+      this.showMessage(`Zoom ${Math.round(viewer.fullZoom * 100)}%`);
+    } catch (e) {
+      this.showMessage("Zoom isn't available on this page", "error");
+    }
+  },
+
+  zoomReset() {
+    let b = this.selectedBrowser;
+    if (!b) {
+      return;
+    }
+    try {
+      b.markupDocumentViewer.fullZoom = 1;
+    } catch (e) { /* internal pages just stay as they are */ }
   },
 
   // -------------------------------------------------------------- sleeping
@@ -869,8 +1197,40 @@ var Seijaku = {
         }
         break;
       }
+      case "dblclick": {
+        let tab = event.target.closest(".tab")?.tab;
+        if (tab) {
+          this.closeTab(tab);
+        }
+        break;
+      }
+      case "keydown": {
+        // Escape closes the find bar, and only the find bar: it is the
+        // one piece of chrome UI that a page must never be able to
+        // swallow, and it never reaches pages from here.
+        if (event.key == "Escape" && !document.getElementById("findbar").hidden) {
+          this.hideFindBar();
+        }
+        break;
+      }
+      case "mousemove": {
+        // Auto-hide chrome: the top edge reveals, the page hides.
+        // Only acts when the state would change, so the steady
+        // stream of moves costs nothing.
+        if (this._autohide) {
+          if (event.clientY <= 4) {
+            this.showChrome();
+          } else if (document.getElementById("content")?.contains(event.target)) {
+            this.hideChrome();
+          }
+        }
+        break;
+      }
       case "unload":
         clearInterval(this._sleepTimer);
+        try {
+          Services.obs.removeObserver(this, "commandline-args-changed");
+        } catch (e) { /* never registered, or already gone */ }
         // A staged update installs now: the .bat waits for this
         // process to be gone, installs silently, and restarts Seijaku.
         if (this._stagedUpdate && !this._updating) {
@@ -891,6 +1251,12 @@ var Keys = {
     ["t", "accel,shift", () => Seijaku.undoCloseTab()],
     ["l", "accel", () => Seijaku.$addressbar.focus()],
     ["r", "accel", () => Seijaku.selectedBrowser?.reload()],
+    ["f", "accel", () => Seijaku.showFindBar()],
+    ["=", "accel", () => Seijaku.zoom(0.1)],
+    ["+", "accel", () => Seijaku.zoom(0.1)],
+    ["-", "accel", () => Seijaku.zoom(-0.1)],
+    ["0", "accel", () => Seijaku.zoomReset()],
+    ["h", "accel,shift", () => Seijaku.toggleChromeAutohide()],
     ["VK_LEFT", "alt", () => Seijaku.selectedBrowser?.goBack()],
     ["VK_RIGHT", "alt", () => Seijaku.selectedBrowser?.goForward()],
     [",", "accel", () => Seijaku.openPage("settings")],

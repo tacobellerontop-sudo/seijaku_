@@ -35,3 +35,13 @@ label input[type="checkbox"] {
   margin: 0 6px 0 0;
   vertical-align: middle;
 }
+
+#setting-custom-theme[hidden] {
+  display: none;
+}
+
+#setting-custom-theme input[type="color"] {
+  width: 48px;
+  height: 28px;
+  padding: 2px;
+}

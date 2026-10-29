@@ -47,13 +47,6 @@ button:hover {
   border-color: var(--muted);
 }
 
-kbd {
-  font: inherit;
-  color: var(--fg);
-  border: 1px solid var(--line);
-  padding: 0 4px;
-}
-
 .muted {
   color: var(--muted);
 }

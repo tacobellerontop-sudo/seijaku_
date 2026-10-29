@@ -59,7 +59,9 @@ body {
   align-items: center;
   padding-inline: 8px 2px;
   font-family: var(--serif);
-  font-size: 17px;
+  /* The same size as the tab words beside it, so the seal sits on the
+     same baseline instead of looming over the strip. */
+  font-size: 12px;
   color: var(--accent);
 }
 #titlebar-content {
@@ -177,6 +179,9 @@ body {
   cursor: default;
   color: var(--muted);
   border-bottom: 2px solid transparent;
+  /* GPU-cheap animation, on purpose: only colour and the underline
+     move, never layout. Nothing here reflows the strip. */
+  transition: color 0.15s ease, border-color 0.15s ease;
 }
 .tab[selected] {
   color: var(--tab-selected-fg);
@@ -191,26 +196,6 @@ body {
 .tab-label {
   overflow: hidden;
   text-overflow: ellipsis;
-}
-.tab-close {
-  appearance: none;
-  border: none;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  line-height: 1;
-  padding: 2px 5px;
-  margin-inline-start: auto;
-  cursor: pointer;
-  display: none;
-  -moz-window-dragging: no-drag;
-}
-.tab[selected] .tab-close,
-.tab:hover .tab-close {
-  display: inline;
-}
-.tab-close:hover {
-  color: var(--accent);
 }
 .tab-new {
   appearance: none;
@@ -239,6 +224,28 @@ body {
   padding-inline: 6px;
   user-select: none;
   border-bottom: 1px solid var(--line);
+  position: relative;
+}
+/* The address bar itself is centred and smaller: it sits in the
+   middle of the toolbar instead of stretching edge to edge, so the
+   nav buttons stay left and the menu stays right. Absolute centring
+   (not auto margins) keeps it truly centred even though the left
+   button group is wider than the menu button. The 240px reserve is
+   wider than both button groups, so the bar never overlaps them. */
+#address-wrap {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(480px, calc(100% - 240px));
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+/* The centred bar is out of the flex flow now, so nothing pushes the
+   menu right any more — it needs its own auto margin, or it drifts
+   left next to the reload button. */
+#toolbar-menu {
+  margin-left: auto;
 }
 .nav-button {
   appearance: none;
@@ -256,6 +263,9 @@ body {
   height: 24px;
   cursor: pointer;
   -moz-window-dragging: no-drag;
+}
+.nav-button {
+  transition: color 0.15s ease;
 }
 .nav-button:hover:not(:disabled) {
   color: var(--fg);
@@ -287,6 +297,27 @@ body {
 #addressbar:focus {
   /* The line under the whole toolbar is the focus mark; nothing extra. */
   outline: none;
+}
+
+/* ---- Auto-hide chrome: only the red line at the top edge ---- */
+/* The line is hidden unless the mode is on and the bars are hidden.
+   The bars collapse with visibility: collapse, which frees their
+   space in a flex column — no height animation, no reflow cost
+   beyond the one collapse. The mode is off by default. */
+#edge-line {
+  display: none;
+  order: -1;
+  flex: none;
+  height: 2px;
+  background: var(--accent);
+}
+:root[autohide="true"][chrome-hidden="true"] #edge-line {
+  display: block;
+}
+:root[autohide="true"][chrome-hidden="true"] #titlebar,
+:root[autohide="true"][chrome-hidden="true"] #tabbar,
+:root[autohide="true"][chrome-hidden="true"] #toolbar {
+  visibility: collapse;
 }
 
 /* ---- Pages ---- */
@@ -322,6 +353,33 @@ body {
 }
 #message[hidden] {
   display: none;
+}
+
+/* ---- Find bar: one quiet line under the page, only while finding ---- */
+#findbar {
+  height: var(--message-height);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-inline: 8px;
+}
+#findbar[hidden] {
+  display: none;
+}
+#find-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  padding: 0;
+}
+#find-input::placeholder {
+  color: var(--muted);
+  font-family: var(--serif);
+  font-style: italic;
 }
 #message[level="error"] {
   background: var(--error);

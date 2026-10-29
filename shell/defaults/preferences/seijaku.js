@@ -5,10 +5,29 @@ pref("toolkit.singletonWindowType", "seijaku:main");
 pref("seijaku.update.enabled", true);          // check GitHub for a new release on startup, at most once a day
 pref("seijaku.update.lastCheck", 0);           // seconds since the epoch of the last check
 pref("seijaku.update.installNow", false);      // flipped by the Settings page to ask the chrome window to update now
-pref("seijaku.theme", "ink");                  // "ink" (dark) or "paper" (light)
+pref("seijaku.theme", "ink");                  // ink, paper, matcha, sakura, ai, or custom (see docs/THEMES.md)
+pref("seijaku.theme.custom.barBg", "#171310"); // custom theme colours, picked in Settings
+pref("seijaku.theme.custom.fg", "#ece4d3");
+pref("seijaku.theme.custom.accent", "#d8442a");
 pref("seijaku.homepage", "seijaku:home");      // seijaku:home, about:blank or any address
 pref("seijaku.searchUrl", "https://duckduckgo.com/?q=%s");
 pref("seijaku.tabs.unloadAfterMinutes", 15);   // 0 turns tab sleeping off
+pref("seijaku.chrome.autohide", false);        // hide the top bars, keep only the red line at the top edge (Settings)
+
+/* The engine already composites on the GPU; nothing here turns that
+   off, and the shell's own animations are opacity/transform only, so
+   they ride the compositor instead of reflowing anything. */
+pref("layers.acceleration.disabled", false);
+
+/* DRM, kept on: encrypted video (Netflix and the like) needs the
+   Widevine CDM, which Gecko downloads on first use — it is not bundled
+   and nothing in the package drops it (only the clear-key module goes,
+   which no DRM site uses). One honest caveat, still untested: the
+   engine binary is renamed, and Breached keeps an unrenamed binary for
+   Google-certified video sites, so if a DRM site refuses to play, the
+   rename is the first suspect. */
+pref("media.eme.enabled", true);
+pref("media.gmp-widevinecdm.enabled", true);
 
 /* Stripped Mozilla services: see docs/STRIPPED.md for why each is here.
    Every one of these is a background task, a network call, or a bundled

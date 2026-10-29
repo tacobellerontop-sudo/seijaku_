@@ -71,11 +71,11 @@ Type: filesandordirs; Name: "{app}"
 ; only, no PDF or file-type sprawl.
 Root: HKCU; Subkey: "Software\Classes\SeijakuHTML"; ValueType: string; ValueName: ""; ValueData: "Seijaku HTML Document"; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Classes\SeijakuHTML\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\seijaku.ico"
-Root: HKCU; Subkey: "Software\Classes\SeijakuHTML\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\seijaku.exe"" -app ""{app}\seijaku\application.ini"" ""%1"""
+Root: HKCU; Subkey: "Software\Classes\SeijakuHTML\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\seijaku.exe"" -app ""{app}\seijaku\application.ini"" -osint -url ""%1"""
 Root: HKCU; Subkey: "Software\Classes\SeijakuURL"; ValueType: string; ValueName: ""; ValueData: "Seijaku URL"; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Classes\SeijakuURL"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""
 Root: HKCU; Subkey: "Software\Classes\SeijakuURL\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\seijaku.ico"
-Root: HKCU; Subkey: "Software\Classes\SeijakuURL\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\seijaku.exe"" -app ""{app}\seijaku\application.ini"" ""%1"""
+Root: HKCU; Subkey: "Software\Classes\SeijakuURL\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\seijaku.exe"" -app ""{app}\seijaku\application.ini"" -osint -url ""%1"""
 Root: HKCU; Subkey: "Software\Clients\StartMenuInternet\Seijaku"; ValueType: string; ValueName: ""; ValueData: "Seijaku"; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Clients\StartMenuInternet\Seijaku\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\seijaku.ico"
 Root: HKCU; Subkey: "Software\Clients\StartMenuInternet\Seijaku\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\seijaku.exe"" -app ""{app}\seijaku\application.ini"""
@@ -91,7 +91,7 @@ Root: HKCU; Subkey: "Software\RegisteredApplications"; ValueType: string; ValueN
 Root: HKCU; Subkey: "Software\Classes\.htm\OpenWithProgids"; ValueType: string; ValueName: "SeijakuHTML"; ValueData: ""; Flags: uninsdeletevalue
 Root: HKCU; Subkey: "Software\Classes\.html\OpenWithProgids"; ValueType: string; ValueName: "SeijakuHTML"; ValueData: ""; Flags: uninsdeletevalue
 Root: HKCU; Subkey: "Software\Classes\Applications\seijaku.exe"; ValueType: string; ValueName: "FriendlyAppName"; ValueData: "Seijaku"; Flags: uninsdeletekey
-Root: HKCU; Subkey: "Software\Classes\Applications\seijaku.exe\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\seijaku.exe"" -app ""{app}\seijaku\application.ini"" ""%1"""
+Root: HKCU; Subkey: "Software\Classes\Applications\seijaku.exe\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\seijaku.exe"" -app ""{app}\seijaku\application.ini"" -osint -url ""%1"""
 
 [Icons]
 ; IconFilename matters now: seijaku.exe is the renamed Firefox binary,
@@ -100,8 +100,13 @@ Root: HKCU; Subkey: "Software\Classes\Applications\seijaku.exe\shell\open\comman
 ; shortcut starts the bare engine, which has no front end left to show
 ; — that is why 0.1.2 could not be reopened after closing it (the
 ; post-install [Run] entry had -app, so the first launch worked).
-Name: "{autoprograms}\Seijaku"; Filename: "{app}\seijaku.exe"; Parameters: "-app ""{app}\seijaku\application.ini"""; IconFilename: "{app}\seijaku.ico"
-Name: "{autodesktop}\Seijaku"; Filename: "{app}\seijaku.exe"; Parameters: "-app ""{app}\seijaku\application.ini"""; IconFilename: "{app}\seijaku.ico"; Tasks: desktopicon
+; AppUserModelID matters most of all for the taskbar: Windows groups
+; the running window's button by this ID and takes the button's icon
+; from the shortcut that matches it. It must be identical to the ID
+; the shell sets on its window in seijaku.js (Seijaku.Seijaku), or
+; the button falls back to the exe — Firefox's icon again.
+Name: "{autoprograms}\Seijaku"; Filename: "{app}\seijaku.exe"; Parameters: "-app ""{app}\seijaku\application.ini"""; IconFilename: "{app}\seijaku.ico"; AppUserModelID: "Seijaku.Seijaku"
+Name: "{autodesktop}\Seijaku"; Filename: "{app}\seijaku.exe"; Parameters: "-app ""{app}\seijaku\application.ini"""; IconFilename: "{app}\seijaku.ico"; AppUserModelID: "Seijaku.Seijaku"; Tasks: desktopicon
 
 [Run]
 ; The engine binary itself is seijaku.exe, so it needs -app to find the

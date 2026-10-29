@@ -65,6 +65,20 @@ main {
   width: min(640px, 90vw);
   padding-block: 40px;
   text-align: center;
+  /* One cheap entrance: opacity and a small rise only, both handled
+     by the compositor, so the page still costs nothing to show. */
+  animation: rise 0.35s ease-out;
+}
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  main {
+    animation: none;
+  }
 }
 
 /* Formal serif for the wordmark, like Ryoku's big serif title. */
@@ -105,7 +119,8 @@ main {
   color: var(--muted);
 }
 
-/* No box, just an underline, centred. */
+/* No box, just one underline, centred: grey at rest, vermilion while
+   searching. The second, always-grey line underneath it is gone. */
 #search-form {
   width: min(520px, 100%);
   margin: 0 auto;
@@ -115,7 +130,6 @@ main {
 }
 #search-form:focus-within {
   border-bottom-color: var(--accent);
-  border-bottom-width: 2px;
 }
 #search {
   width: 100%;
@@ -132,14 +146,6 @@ main {
   font-style: italic;
 }
 
-/* One solid hairline, not a fading gradient. */
-#horizon {
-  width: min(520px, 100%);
-  height: 1px;
-  margin: 28px auto 0;
-  background: var(--line);
-}
-
 #sleeping {
   margin: 12px 0 0;
   font-size: 12px;
@@ -148,17 +154,3 @@ main {
   display: none;
 }
 
-/* Casual labels: tiny, uppercase, tracked, like Ryoku's nav. */
-footer {
-  margin-top: 40px;
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 6px 18px;
-  font-size: 11px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-}
-footer kbd {
-  letter-spacing: 0;
-}

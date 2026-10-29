@@ -19,6 +19,9 @@
   <script src="chrome://seijaku/content/seijaku.js"></script>
 </head>
 <body>
+  <!-- The auto-hide line: the only top chrome left when the bars are
+       hidden. See the auto-hide section in seijaku.css. -->
+  <div id="edge-line"></div>
   <div id="titlebar">
     <span id="seal" title="Seijaku">&#x7c21;</span>
     <div id="titlebar-content">
@@ -40,14 +43,20 @@
       <button id="nav-forward" class="nav-button" title="Forward (Alt+Right)" tabindex="-1" disabled="disabled">&#x2192;</button>
       <button id="nav-reload" class="nav-button" title="Reload (Ctrl+R)" tabindex="-1">&#x21bb;</button>
     </span>
-    <span id="address-lock" title="Connection security">&#x2315;</span>
-    <input id="addressbar" type="text" spellcheck="false" autocomplete="off"
-           placeholder="Search or type an address" />
+    <span id="address-wrap">
+      <span id="address-lock" title="Connection security">&#x2315;</span>
+      <input id="addressbar" type="text" spellcheck="false" autocomplete="off"
+             placeholder="Search or type an address" />
+    </span>
     <button id="toolbar-menu" class="nav-button" title="Settings (Ctrl+,)" tabindex="-1">&#x22ee;</button>
   </div>
   <div id="content"></div>
   <div id="bottom">
     <div id="message" hidden="hidden"></div>
+    <div id="findbar" hidden="hidden">
+      <input id="find-input" type="text" spellcheck="false" autocomplete="off"
+             placeholder="Find in page — Enter for next, Shift+Enter for previous, Esc to close" />
+    </div>
   </div>
 </body>
 </html>

@@ -17,14 +17,47 @@
       <select id="setting-theme">
         <option value="ink">Ink (dark)</option>
         <option value="paper">Paper (light)</option>
+        <option value="matcha">Matcha (dark green)</option>
+        <option value="sakura">Sakura (light pink)</option>
+        <option value="ai">Ai (dark indigo)</option>
+        <option value="custom">Custom (pick three colours below)</option>
       </select>
     </label>
+    <div id="setting-custom-theme">
+      <label>
+        Custom background
+        <input id="setting-custom-bg" type="color" />
+      </label>
+      <label>
+        Custom text
+        <input id="setting-custom-fg" type="color" />
+      </label>
+      <label>
+        Custom accent
+        <input id="setting-custom-accent" type="color" />
+      </label>
+      <p class="muted">Everything else in a custom theme stays Ink, so it can't come out unreadable.</p>
+    </div>
     <label>
       Put idle tabs to sleep after (minutes, 0 turns it off)
       <input id="setting-sleep" type="number" min="0" max="240" />
     </label>
     <label>
-      Search engine (use %s for the search)
+      Search engine
+      <select id="setting-search-engine">
+        <option value="https://duckduckgo.com/?q=%s">DuckDuckGo</option>
+        <option value="https://www.google.com/search?q=%s">Google</option>
+        <option value="https://www.bing.com/search?q=%s">Bing</option>
+        <option value="https://search.brave.com/search?q=%s">Brave</option>
+        <option value="https://www.startpage.com/sp/search?query=%s">Startpage</option>
+        <option value="https://www.ecosia.org/search?q=%s">Ecosia</option>
+        <option value="https://www.mojeek.com/search?q=%s">Mojeek</option>
+        <option value="https://www.qwant.com/?q=%s">Qwant</option>
+        <option value="custom">Custom (type a URL below, with %s for the search)</option>
+      </select>
+    </label>
+    <label>
+      Custom search URL (use %s for the search)
       <input id="setting-search" type="text" spellcheck="false" />
     </label>
     <label>
@@ -34,6 +67,16 @@
     <label>
       <input id="setting-update" type="checkbox" />
       Check for updates on startup (at most once a day; a newer version downloads in the background and installs when you quit)
+    </label>
+    <label>
+      <input id="setting-permissions-allow" type="checkbox" />
+      Allow sites to use the camera, microphone and notifications without asking
+      <span class="muted">Off by default. When on, any site that asks gets access at once, with no prompt and no device choice. Location still needs a real prompt UI, which the shipped engine cannot yet register — see the release notes.</span>
+    </label>
+    <label>
+      <input id="setting-autohide" type="checkbox" />
+      Auto-hide the top bars — only the red line stays at the top edge
+      <span class="muted">Move the mouse to the very top edge to bring the bars back; moving onto the page hides them again. Ctrl+Shift+H flips this setting.</span>
     </label>
     <label>
       Updates

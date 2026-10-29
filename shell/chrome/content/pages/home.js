@@ -39,10 +39,6 @@ window.addEventListener("DOMContentLoaded", () => {
       go(input.value);
     }
   });
-  document.getElementById("settings-link").addEventListener("click", event => {
-    event.preventDefault();
-    shellWindow()?.Seijaku?.openPage("settings");
-  });
   input.focus();
   showSleeping();
 });
