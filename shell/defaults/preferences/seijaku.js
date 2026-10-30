@@ -90,6 +90,10 @@ pref("browser.preferences.moreFromMozilla", false);
 pref("toolkit.coverage.opt-out", true);
 pref("toolkit.coverage.endpoint.base", "");
 
+/* No password manager: Seijaku has no UI to save or fill logins, and
+   the engine's login actor would otherwise try to offer a save prompt
+   that has nowhere to appear on every sign-in form. */
+pref("signon.rememberSignons", false);
 /* Content windows open as tabs, not new windows. */
 pref("browser.link.open_newwindow", 3);
 pref("browser.link.open_newwindow.restriction", 0);

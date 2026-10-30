@@ -31,10 +31,10 @@ GitHub on startup and install when you quit.
 
 ## What is not here (on purpose)
 
-Extensions, accounts, sync, mods, passkeys, DRM handling, pinned
-sites, most-visited lists, a command bar, and every tab position
-except top. Each of those was a Breached feature and a Breached bug
-surface.
+Accounts, sync, mods, passkeys, a password manager, and a typed
+command bar. Each of those was a Breached feature and a Breached bug
+surface. (Extensions, protected video, pinned tabs and tab positions
+other than top did come back in 0.2.x, each kept small.)
 
 ## How it runs, and the installer
 
