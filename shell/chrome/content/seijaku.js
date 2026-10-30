@@ -38,6 +38,14 @@ try {
   });
 } catch (e) { /* already registered by another window */ }
 
+// Site permission prompts (notifications, camera, microphone): see
+// PermissionPrompt.sys.mjs for why these are registered at runtime.
+try {
+  ChromeUtils.importESModule("resource://seijaku/PermissionPrompt.sys.mjs").register();
+} catch (e) {
+  console.error("Seijaku: registering permission prompts", e);
+}
+
 const PREF = "seijaku.";
 const SESSION_FILE = "seijaku-session.json";
 const DATA_FILE = "seijaku-data.json";
@@ -3498,10 +3506,9 @@ var Seijaku = {
   // -------------------------------------------------------------- site permissions
   //
   // When a site asks for the camera, microphone, or notifications,
-  // the engine routes the request through the prompt component
-  // (shell/components/PermissionPrompt.js, registered in
-  // chrome.manifest), which hands it to queuePermissionRequest
-  // here. The prompt is a XUL panel at the top centre of the window
+  // the engine's request reaches queuePermissionRequest here through
+  // shell/modules/PermissionPrompt.sys.mjs (registered at the top of
+  // this file). The prompt is a XUL panel at the top centre of the window
   // — where the floating bar appears — with the site, what it wants,
   // Allow / Block, and a remember checkbox. Remembered decisions
   // live in seijaku-data.json next to bookmarks and history, and
@@ -3510,10 +3517,6 @@ var Seijaku = {
   // everything: when it is on, sites get access at once with no
   // prompt. Location is denied outright, by pref (geo.enabled) and
   // again in the component — it never reaches a prompt.
-  // UNVERIFIED ON WINDOWS: the component registration step is the
-  // standard XUL-shell mechanism, but no Windows run has yet shown
-  // a prompt from a real camera test page. If prompts never appear,
-  // the allow-switch still works, and a denied request fails safe.
 
   permissionTypeText(type) {
     return {

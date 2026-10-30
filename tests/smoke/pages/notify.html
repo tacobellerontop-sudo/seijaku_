@@ -1,0 +1,7 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>notify:waiting</title></head><body>
+<script>
+Notification.requestPermission()
+  .then(result => { document.title = "notify:" + result; })
+  .catch(e => { document.title = "notify:error:" + e.name; });
+</script></body></html>

@@ -1,0 +1,35 @@
+name: Smoke test
+
+# Builds Seijaku on Mozilla's current Firefox release, exactly as the
+# Release workflow does, then starts it headless on Windows and runs
+# tests/smoke/smoketest.js inside the real window: web pages in a
+# content process, find, zoom, reader view, camera/microphone and
+# notification prompts, peer connections, and saving. Nothing is
+# published.
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download Mozilla's Gecko (Firefox release build)
+        shell: pwsh
+        run: |
+          Invoke-WebRequest "https://download.mozilla.org/?product=firefox-latest-ssl&os=win64&lang=en-US" -OutFile "$env:RUNNER_TEMP\firefox-setup.exe"
+
+      - name: Package Seijaku
+        shell: pwsh
+        run: powershell -ExecutionPolicy Bypass -File scripts\build\package.ps1 -Installer "$env:RUNNER_TEMP\firefox-setup.exe" -Out out
+
+      - name: Run the smoke test
+        shell: pwsh
+        run: powershell -ExecutionPolicy Bypass -File tests\smoke\run.ps1 -App out\seijaku

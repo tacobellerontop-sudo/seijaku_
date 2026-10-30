@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>pc:waiting</title></head><body>
+<script>
+(async () => {
+  try {
+    let pc = new RTCPeerConnection();
+    pc.createDataChannel("smoke");
+    let offer = await pc.createOffer();
+    document.title = offer.sdp ? "pc:ok" : "pc:empty";
+  } catch (e) {
+    document.title = "pc:error:" + e.name;
+  }
+})();
+</script></body></html>
