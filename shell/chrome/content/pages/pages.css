@@ -60,14 +60,15 @@ button:hover {
 }
 
 /* Page titles: the serif word, lower case, with a short vermilion
-   stroke under it — the strip's selected-tab mark, reused. */
-h1 {
+   stroke under it — the strip's selected-tab mark, reused. The home
+   page's greeting is an h1 too, and keeps its own look. */
+h1:not(#greeting) {
   position: relative;
   padding-bottom: 14px;
   margin-bottom: 14px !important;
   letter-spacing: 0.04em;
 }
-h1::after {
+h1:not(#greeting)::after {
   content: "";
   position: absolute;
   left: 0;

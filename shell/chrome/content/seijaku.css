@@ -784,8 +784,10 @@ body {
   --panel-border-color: var(--line);
   --panel-border-radius: 10px;
   --panel-padding: 0;
-  --panel-box-shadow-margin: 16px;
-  --panel-box-shadow: 0 8px 28px rgba(0, 0, 0, 0.32), 0 1px 3px rgba(0, 0, 0, 0.2);
+  /* The shadow must fit inside its margin, or the popup's edge clips
+     it into a visible box. */
+  --panel-box-shadow-margin: 18px;
+  --panel-box-shadow: 0 4px 12px rgba(0, 0, 0, 0.26), 0 1px 3px rgba(0, 0, 0, 0.18);
   color: var(--fg);
   font: var(--font-size) var(--font);
 }
@@ -795,6 +797,8 @@ body {
 }
 #urlbar-inner,
 #palette-inner {
+  flex: 1;
+  min-width: 0;
   padding: 14px 16px 12px;
 }
 #urlbar-row {
@@ -804,9 +808,11 @@ body {
 }
 #urlbar-input,
 #palette-input {
+  appearance: none;
   flex: 1;
   min-width: 0;
   border: none;
+  border-radius: 0;
   border-bottom: 1px solid var(--line);
   outline: none;
   background: transparent;
@@ -821,6 +827,7 @@ body {
   border-bottom-color: var(--accent);
 }
 #palette-input {
+  display: block;
   width: 100%;
   box-sizing: border-box;
 }
@@ -922,6 +929,8 @@ body {
 }
 #perm-inner,
 #site-inner {
+  flex: 1;
+  min-width: 0;
   padding: 16px 18px 14px;
 }
 #perm-text,
