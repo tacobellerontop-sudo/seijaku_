@@ -19,7 +19,7 @@ const SESSION_FILE = "seijaku-session.json";
 const DATA_FILE = "seijaku-data.json";
 const HISTORY_LIMIT = 1000;
 const MESSAGE_MS = 4000;
-const SEIJAKU_VERSION = "0.2.8";
+const SEIJAKU_VERSION = "0.2.9";
 const UPDATE_REPO = "tacobellerontop-sudo/seijaku_";
 const UPDATE_CHECK_MS = 24 * 60 * 60 * 1000;
 
@@ -548,8 +548,25 @@ var Seijaku = {
         QueryInterface: ChromeUtils.generateQI([Ci.nsIWebProgressListener]),
       };
       try {
+        // Current saveURI takes 10 arguments (the old 7-arg call threw
+        // "Not enough arguments" on the update download — it had never
+        // successfully run, since no newer release existed to fetch
+        // until 0.2.8). Mirrors Firefox's own internalSave caller:
+        // system principal (no source document for an updater fetch),
+        // nulls for cache key / referrer / cookie jar / post data /
+        // extra headers, the target as a file URI, save-as-download
+        // policy, not private.
         persist.saveURI(
-          Services.io.newURI(url), null, null, null, null, file, null
+          Services.io.newURI(url),
+          Services.scriptSecurityManager.getSystemPrincipal(),
+          null,
+          null,
+          null,
+          null,
+          null,
+          Services.io.newFileURI(file),
+          Ci.nsIContentPolicy.TYPE_SAVEAS_DOWNLOAD,
+          false
         );
       } catch (e) {
         reject(e);
