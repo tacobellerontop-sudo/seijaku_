@@ -42,18 +42,15 @@ try {
   });
 } catch (e) { /* already registered by another window */ }
 
-// Tab icons: the page's own icon, found in its process when it is
-// shown (see SeijakuIconChild.sys.mjs). Top-level http(s) pages only.
+// Tab icons: the page's own icon, read in its process once it has
+// loaded (see SeijakuIconChild.sys.mjs). Top-level http(s) pages only.
 try {
   ChromeUtils.registerWindowActor("SeijakuIcon", {
     parent: { esModuleURI: "resource://seijaku/SeijakuIconParent.sys.mjs" },
-    child: {
-      esModuleURI: "resource://seijaku/SeijakuIconChild.sys.mjs",
-      events: { pageshow: {} },
-    },
+    child: { esModuleURI: "resource://seijaku/SeijakuIconChild.sys.mjs" },
     matches: ["http://*/*", "https://*/*"],
     messageManagerGroups: ["browsers"],
-    // Only reads link elements and sends their resolved address.
+    // Only reads link elements and returns their resolved address.
     safeForUntrustedWebProcess: true,
   });
 } catch (e) { /* already registered by another window */ }
@@ -1753,10 +1750,23 @@ var Seijaku = {
     return !this.isPrivate && this.pref("tabs.icons", true);
   },
 
-  /** Called by the SeijakuIcon actor when a page reports its icon. */
-  setTabIcon(browser, href) {
-    let tab = this.tabs.find(t => t.browser === browser);
-    if (!tab || !this.iconsEnabled() || !/^(https?|data):/.test(href || "")) {
+  /** Asks a loaded page for its icon (the SeijakuIcon actor). */
+  async fetchTabIcon(tab) {
+    if (!this.iconsEnabled() || !/^https?:/.test(tab.url)) {
+      return;
+    }
+    let url = tab.url;
+    let answer = null;
+    try {
+      answer = await tab.browser?.browsingContext?.currentWindowGlobal
+        ?.getActor("SeijakuIcon")
+        .sendQuery("GetIcon");
+    } catch (e) {
+      return; // the page went away, or isn't a web page
+    }
+    let href = answer?.href || "";
+    // The tab may have moved on while the page answered.
+    if (tab.url != url || !/^(https?|data):/.test(href)) {
       return;
     }
     tab.setIcon(href);
@@ -3139,6 +3149,7 @@ var Seijaku = {
           if (tab === Seijaku.selected) {
             Seijaku.updateNavButtons();
           }
+          Seijaku.fetchTabIcon(tab);
           Seijaku.saveSession();
         }
       },
