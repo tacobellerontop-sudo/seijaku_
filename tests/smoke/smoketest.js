@@ -97,7 +97,20 @@
     });
 
     await check("a page's icon reaches its tab", async () => {
-      await waitFor("the tab icon", () => tab.icon == BASE + "icon.svg" && !tab.iconEl.hidden);
+      try {
+        await waitFor("the tab icon", () => tab.icon == BASE + "icon.svg" && !tab.iconEl.hidden);
+      } catch (e) {
+        let actor = "ok";
+        try {
+          tab.browser.browsingContext.currentWindowGlobal.getActor("SeijakuIcon");
+        } catch (err) {
+          actor = String(err?.message || err);
+        }
+        throw new Error(
+          `${e.message} (icon=${tab.icon || "none"}, hidden=${tab.iconEl.hidden}, ` +
+          `complete=${tab.iconEl.complete}, width=${tab.iconEl.naturalWidth}, actor=${actor})`
+        );
+      }
       return tab.icon;
     });
 
