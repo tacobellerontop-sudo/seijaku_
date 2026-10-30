@@ -5,7 +5,8 @@
 ; Installs the packaged app (scripts/build/package.ps1) for the current
 ; user only, into %LOCALAPPDATA%\Programs\Seijaku. No admin rights, no
 ; Firefox, and nothing else to install first: the engine is inside the
-; package, renamed to seijaku.exe, so it needs nothing else at all.
+; package, with seijaku.exe as a small launcher that starts it, so it
+; needs nothing else at all.
 ; The profile lives in %APPDATA%\Seijaku, so the install folder stays
 ; read-only and updates keep your tabs.
 ;
@@ -94,12 +95,14 @@ Root: HKCU; Subkey: "Software\Classes\Applications\seijaku.exe"; ValueType: stri
 Root: HKCU; Subkey: "Software\Classes\Applications\seijaku.exe\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\seijaku.exe"" -app ""{app}\seijaku\application.ini"" -osint -url ""%1"""
 
 [Icons]
-; IconFilename matters now: seijaku.exe is the renamed Firefox binary,
-; so its embedded icon is still Firefox's. Point the shortcuts at the
-; seal icon instead. Parameters matters just as much: without -app the
-; shortcut starts the bare engine, which has no front end left to show
-; — that is why 0.1.2 could not be reopened after closing it (the
-; post-install [Run] entry had -app, so the first launch worked).
+; IconFilename matters: the running browser is firefox.exe, whose
+; embedded icon is Firefox's. Point the shortcuts at the seal icon
+; instead. (The launcher seijaku.exe itself carries the seal icon too,
+; but the taskbar button comes from the AppUserModelID match, below.)
+; Parameters matters just as much: without -app the shortcut starts
+; the bare engine, which has no front end left to show — that is why
+; 0.1.2 could not be reopened after closing it (the post-install [Run]
+; entry had -app, so the first launch worked).
 ; AppUserModelID matters most of all for the taskbar: Windows groups
 ; the running window's button by this ID and takes the button's icon
 ; from the shortcut that matches it. It must be identical to the ID
@@ -109,8 +112,9 @@ Name: "{autoprograms}\Seijaku"; Filename: "{app}\seijaku.exe"; Parameters: "-app
 Name: "{autodesktop}\Seijaku"; Filename: "{app}\seijaku.exe"; Parameters: "-app ""{app}\seijaku\application.ini"""; IconFilename: "{app}\seijaku.ico"; AppUserModelID: "Seijaku.Seijaku"; Tasks: desktopicon
 
 [Run]
-; The engine binary itself is seijaku.exe, so it needs -app to find the
-; shell; without it there is no Firefox front end left to fall back to.
+; seijaku.exe is the launcher: it forwards -app to firefox.exe, which
+; finds the shell; without -app there is no Firefox front end left to
+; fall back to.
 Filename: "{app}\seijaku.exe"; Parameters: "-app ""{app}\seijaku\application.ini"""; Description: "Start Seijaku"; Flags: nowait postinstall skipifsilent
 
 [Code]

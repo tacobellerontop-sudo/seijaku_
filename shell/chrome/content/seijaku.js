@@ -19,7 +19,7 @@ const SESSION_FILE = "seijaku-session.json";
 const DATA_FILE = "seijaku-data.json";
 const HISTORY_LIMIT = 1000;
 const MESSAGE_MS = 4000;
-const SEIJAKU_VERSION = "0.2.4";
+const SEIJAKU_VERSION = "0.2.5";
 const UPDATE_REPO = "tacobellerontop-sudo/seijaku_";
 const UPDATE_CHECK_MS = 24 * 60 * 60 * 1000;
 
@@ -395,11 +395,17 @@ var Seijaku = {
     this._stagedUpdate = batFile.path;
   },
 
+  // The update bat waits for the browser to quit before installing
+  // over it. The running browser is firefox.exe now (the launcher
+  // exits at once), so the wait loop watches for that. Corner case:
+  // if the user also runs real Firefox, the update waits for that
+  // too — the safe direction, since installing over a running
+  // browser is what this loop exists to prevent.
   updaterBat(installerPath) {
     return [
       "@echo off",
       ":wait",
-      'tasklist /FI "IMAGENAME eq seijaku.exe" 2>nul | find /I "seijaku.exe" >nul',
+      'tasklist /FI "IMAGENAME eq firefox.exe" 2>nul | find /I "firefox.exe" >nul',
       "if not errorlevel 1 timeout /t 1 /nobreak >nul & goto wait",
       `"${installerPath}" /VERYSILENT /NORESTART /SUPPRESSMSGBOXES`,
       'start "" "%LOCALAPPDATA%\\Programs\\Seijaku\\seijaku.exe" -app "%LOCALAPPDATA%\\Programs\\Seijaku\\seijaku\\application.ini"',

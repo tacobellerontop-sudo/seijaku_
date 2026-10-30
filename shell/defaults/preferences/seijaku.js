@@ -35,10 +35,11 @@ pref("layers.acceleration.disabled", false);
 /* DRM, kept on: encrypted video (Netflix and the like) needs the
    Widevine CDM, which Gecko downloads on first use — it is not bundled
    and nothing in the package drops it (only the clear-key module goes,
-   which no DRM site uses). One honest caveat, still untested: the
-   engine binary is renamed, and Breached keeps an unrenamed binary for
-   Google-certified video sites, so if a DRM site refuses to play, the
-   rename is the first suspect. */
+   which no DRM site uses). The engine binary stays unrenamed
+   (firefox.exe) with seijaku.exe as a launcher, precisely so certified
+   video sites accept it; the Settings "Protected video" button asks
+   for Widevine on demand because the automatic check never runs on
+   its own here. */
 pref("media.eme.enabled", true);
 pref("media.gmp-widevinecdm.enabled", true);
 /* The update channel Widevine's download needs: Firefox sets this in

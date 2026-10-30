@@ -6,19 +6,23 @@
 # downloads the Firefox installer, extracts the engine, and builds this.
 # It takes the engine (xul.dll and the Gecko runtime files) out of the
 # official Firefox installer, drops Firefox's own front end (browser\) and
-# the background helpers Seijaku doesn't use, renames firefox.exe to
-# seijaku.exe (Breached's method: Gecko starts its child processes from
-# its own path, so the name doesn't matter to it), and adds the Seijaku
-# shell from shell\. Renaming changes no bytes, so Mozilla's signature
-# on the binary stays valid — but Breached keeps an unrenamed firefox.exe
-# for sites that only play video in Google-certified browsers, so
-# DRM playback (Netflix and the like) after a rename is untested.
+# the background helpers Seijaku doesn't use, keeps firefox.exe exactly
+# as Mozilla signed it, and adds the Seijaku shell from shell\.
+# firefox.exe stays unrenamed on purpose: sites that only play video in
+# browsers whose engine Google has certified need the certified name,
+# so protected video (Netflix and the like) loads its Widevine CDM
+# under it — the renamed binary downloaded Widevine fine but the CDM
+# would not load. The entry point is a small launcher, seijaku.exe
+# (scripts\build\Launcher.cs, compiled below with the .NET Framework
+# compiler on the runner, Breached's method), which starts firefox.exe
+# with the shell and passes its arguments through. Task Manager
+# therefore shows firefox.exe for the running browser — that is the
+# accepted trade-off for DRM playback. The window's taskbar grouping
+# is unaffected: it comes from the AppUserModelID the shell sets on
+# its window, not the binary name.
 # Result: <Out>\seijaku\ with Seijaku.bat to start it as a portable app.
-# Task Manager then shows seijaku.exe, not firefox.exe. There is no
-# launcher: Windows cannot rename a running process — the process name
-# is the exe filename, full stop — so the engine binary itself has to
-# carry the name. Needs 7-Zip (7z) and Python 3 on PATH, both present
-# on GitHub's Windows runners.
+# Needs 7-Zip (7z) and Python 3 on PATH, both present on GitHub's
+# Windows runners.
 
 param(
     [Parameter(Mandatory)] [string] $Installer,
@@ -66,11 +70,15 @@ if (-not (Test-Path $icon)) {
 }
 if (-not (Test-Path $icon)) { throw 'the seal icon could not be drawn (needs Pillow and a CJK font)' }
 
-# The engine's program is seijaku.exe. This is what makes Task Manager,
-# the taskbar grouping and crash reports say Seijaku instead of Firefox.
-# Gecko starts its child processes from its own path, so they are
-# seijaku.exe too.
-Rename-Item (Join-Path $app 'firefox.exe') 'seijaku.exe'
+# The launcher: seijaku.exe starts firefox.exe (kept exactly as Mozilla
+# signed it) with the shell. Compiled with the .NET Framework compiler,
+# the same method Breached uses for its launcher on these runners. The
+# seal icon (drawn above) becomes the launcher's file icon. A failed
+# compile must fail the build: a package without its entry point is
+# useless, and a silent fallback would ship it anyway.
+$csc = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+& $csc /nologo /target:winexe "/win32icon:$icon" "/out:$(Join-Path $app 'seijaku.exe')" (Join-Path $repo 'scripts\build\Launcher.cs')
+if ($LASTEXITCODE) { throw "Launcher.cs failed to compile (csc exit code $LASTEXITCODE)" }
 
 # The shell.
 Copy-Item -Recurse (Join-Path $repo 'shell') (Join-Path $app 'seijaku')
@@ -115,8 +123,11 @@ New-Item -ItemType Directory -Force $contentIconDir | Out-Null
 Copy-Item $icon (Join-Path $contentIconDir 'seijaku-window.ico')
 
 # Portable: the profile lives next to the app, separate from any Firefox.
-# The engine binary itself is seijaku.exe now, so the start script passes
-# -app directly instead of going through a launcher.
+# The start script launches seijaku.exe — the launcher — which forwards
+# everything to firefox.exe. The line itself needs no change: it already
+# starts seijaku.exe, which is now the launcher instead of the engine,
+# and -app finds the shell, -profile keeps the portable profile next
+# to the app, and %* forwards anything else (a URL, -osint).
 Set-Content (Join-Path $app 'Seijaku.bat') '@start "" "%~dp0seijaku.exe" -app "%~dp0seijaku\application.ini" -profile "%~dp0profile" -no-remote %*' -Encoding ascii
 New-Item -ItemType Directory -Force (Join-Path $app 'profile') | Out-Null
 
