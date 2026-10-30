@@ -35,6 +35,10 @@ try {
     parent: { esModuleURI: "resource://seijaku/SeijakuReaderParent.sys.mjs" },
     child: { esModuleURI: "resource://seijaku/SeijakuReaderChild.sys.mjs" },
     messageManagerGroups: ["browsers"],
+    // Web pages run in "untrusted" web processes, which an actor may
+    // only enter when it says it is safe there: this one only reads
+    // the page it is in and returns text, and the shell sanitises it.
+    safeForUntrustedWebProcess: true,
   });
 } catch (e) { /* already registered by another window */ }
 

@@ -110,6 +110,10 @@ export function register() {
         esModuleURI: "resource://seijaku/SeijakuMediaChild.sys.mjs",
         observers: ["getUserMedia:request", "PeerConnection:request"],
       },
+      // These requests come from web pages, so the actor has to run in
+      // web processes. The parent half trusts nothing the child says
+      // about which site is asking: it looks the page up itself.
+      safeForUntrustedWebProcess: true,
     });
   } catch (e) {
     console.error("Seijaku: registering the camera and microphone actor", e);
@@ -125,7 +129,25 @@ export class SeijakuMediaParent extends JSProcessActorParent {
     if (message.name != "Seijaku:MediaRequest") {
       return false;
     }
-    let { host, types } = message.data;
+    let { innerWindowId, types } = message.data;
+    // The asking page, looked up here rather than taken from the
+    // child: a compromised content process must not be able to claim
+    // another site's remembered Allow. It has to be a page that really
+    // lives in the process that sent the request.
+    let host = "";
+    try {
+      let page = WindowGlobalParent.getByInnerWindowId(innerWindowId);
+      if (!page || page.domProcess?.childID != this.manager.childID) {
+        return false;
+      }
+      host = page.documentPrincipal.host || "";
+    } catch (e) {
+      return false;
+    }
+    types = (Array.isArray(types) ? types : []).filter(t => t == "camera" || t == "microphone");
+    if (!types.length) {
+      return false;
+    }
     for (let type of types) {
       let allowed = await new Promise(resolve => {
         let win = findShellWindow();

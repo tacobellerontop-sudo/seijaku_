@@ -62,12 +62,10 @@ export class SeijakuMediaChild extends JSProcessActorChild {
         deny();
         return;
       }
-      let host = "";
-      try {
-        let win = Services.wm.getOuterWindowWithId(request.windowID);
-        host = win.document.nodePrincipal.host || "";
-      } catch (e) { /* the prompt says "This site" */ }
-      let allowed = await this.sendQuery("Seijaku:MediaRequest", { host, types });
+      // The parent finds the asking page (and its site) from this id.
+      let win = Services.wm.getOuterWindowWithId(request.windowID);
+      let innerWindowId = win.windowGlobalChild.innerWindowId;
+      let allowed = await this.sendQuery("Seijaku:MediaRequest", { innerWindowId, types });
       if (!allowed) {
         deny();
         return;
