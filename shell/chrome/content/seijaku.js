@@ -71,7 +71,7 @@ const SESSION_FILE = "seijaku-session.json";
 const DATA_FILE = "seijaku-data.json";
 const HISTORY_LIMIT = 1000;
 const MESSAGE_MS = 4000;
-const SEIJAKU_VERSION = "0.2.10";
+const SEIJAKU_VERSION = "0.2.11";
 const UPDATE_REPO = "tacobellerontop-sudo/seijaku_";
 const UPDATE_CHECK_MS = 24 * 60 * 60 * 1000;
 // Session and data writes are batched: a page load reports its
@@ -394,9 +394,9 @@ var Seijaku = {
   // Auto-update, the small way: once a day at most, ask GitHub for the
   // latest release. If there is a newer one, download the installer in
   // the background and stage it; quitting the browser then hands it to
-  // a tiny .bat that waits for this process to exit (so Inno is never
-  // fighting a running browser), installs silently, and starts Seijaku
-  // again. The Settings page has an Update button that does the same
+  // a small hidden PowerShell script that waits for this install's
+  // processes to exit (so Inno is never fighting a running browser),
+  // installs silently, and starts Seijaku again. The Settings page has an Update button that does the same
   // thing immediately, by flipping the update.installNow pref. The
   // portable build has no installer to run, so it just opens the
   // release page.
@@ -471,38 +471,66 @@ var Seijaku = {
     let installerFile = tmp.clone();
     installerFile.append(`SeijakuSetup-${pending.version}.exe`);
     await this.downloadToFile(pending.url, installerFile);
-    let batFile = tmp.clone();
-    batFile.append("seijaku-update.bat");
-    await this.writeTextFile(batFile, this.updaterBat(installerFile.path));
-    this._stagedUpdate = batFile.path;
+    let script = tmp.clone();
+    script.append("seijaku-update.ps1");
+    let appDir = Services.dirsvc.get("GreD", Ci.nsIFile).path;
+    await this.writeTextFile(script, this.updaterScript(installerFile.path, appDir));
+    this._stagedUpdate = script.path;
   },
 
-  // The update bat waits for the browser to quit before installing
-  // over it. The running browser is firefox.exe now (the launcher
-  // exits at once), so the wait loop watches for that. Corner case:
-  // if the user also runs real Firefox, the update waits for that
-  // too — the safe direction, since installing over a running
-  // browser is what this loop exists to prevent.
-  updaterBat(installerPath) {
+  // The updater waits for Seijaku to quit before installing over it,
+  // installs silently, and starts Seijaku again. It runs hidden, so
+  // nothing but Seijaku itself coming back is visible.
+  //
+  // What it waits for is every process running from this install
+  // folder: the engine, its content processes, and any background
+  // task the engine starts at shutdown. 0.2.10 and earlier waited for
+  // any firefox.exe at all, so a real Firefox left open (or anything
+  // else named firefox.exe) kept the update waiting in a terminal
+  // window forever. Processes from this folder that are still there a
+  // minute after quitting are stuck, and are ended so the update can
+  // go ahead. The installer writes a log to %TEMP%\seijaku-update.log.
+  updaterScript(installerPath, appDir) {
+    let quote = s => "'" + String(s).replace(/'/g, "''") + "'";
     return [
-      "@echo off",
-      ":wait",
-      'tasklist /FI "IMAGENAME eq firefox.exe" 2>nul | find /I "firefox.exe" >nul',
-      "if not errorlevel 1 timeout /t 1 /nobreak >nul & goto wait",
-      `"${installerPath}" /VERYSILENT /NORESTART /SUPPRESSMSGBOXES`,
-      'start "" "%LOCALAPPDATA%\\Programs\\Seijaku\\seijaku.exe" -app "%LOCALAPPDATA%\\Programs\\Seijaku\\seijaku\\application.ini"',
-      'del "%~f0"',
+      "$ErrorActionPreference = 'Continue'",
+      "$dir = " + quote(appDir),
+      "$setup = " + quote(installerPath),
+      "$log = Join-Path $env:TEMP 'seijaku-update.log'",
+      "function Get-SeijakuProcess {",
+      "  @(Get-Process -ErrorAction SilentlyContinue | Where-Object {",
+      "    $path = try { $_.Path } catch { $null }",
+      "    $path -and $path.StartsWith($dir + '\\', [StringComparison]::OrdinalIgnoreCase)",
+      "  })",
+      "}",
+      "$deadline = (Get-Date).AddSeconds(60)",
+      "while ((Get-SeijakuProcess).Count) {",
+      "  if ((Get-Date) -gt $deadline) {",
+      "    Get-SeijakuProcess | Stop-Process -Force -ErrorAction SilentlyContinue",
+      "    Start-Sleep -Seconds 2",
+      "    break",
+      "  }",
+      "  Start-Sleep -Milliseconds 500",
+      "}",
+      "Start-Process -FilePath $setup -Wait -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', \"/LOG=`\"$log`\"\"",
+      "Start-Process -FilePath (Join-Path $dir 'seijaku.exe') -ArgumentList '-app', ('\"' + (Join-Path $dir 'seijaku\\application.ini') + '\"')",
+      "Remove-Item -LiteralPath $setup -Force -ErrorAction SilentlyContinue",
+      "Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue",
       "",
     ].join("\r\n");
   },
 
-  launchUpdaterBat(batPath) {
-    let cmd = Services.dirsvc.get("WinD", Ci.nsIFile);
-    cmd.append("System32");
-    cmd.append("cmd.exe");
+  launchUpdater(scriptPath) {
+    let powershell = Services.dirsvc.get("WinD", Ci.nsIFile);
+    for (let part of ["System32", "WindowsPowerShell", "v1.0", "powershell.exe"]) {
+      powershell.append(part);
+    }
     let process = Cc["@mozilla.org/process/util;1"].createInstance(Ci.nsIProcess);
-    process.init(cmd);
-    process.run(false, ["/c", batPath], 2);
+    process.init(powershell);
+    try {
+      process.startHidden = true;
+    } catch (e) { /* -WindowStyle Hidden below still hides it */ }
+    process.run(false, ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File", scriptPath], 8);
   },
 
   maybeCheckForUpdates() {
@@ -592,7 +620,7 @@ var Seijaku = {
     try {
       this.showMessage(`Downloading Seijaku ${pending.version}…`);
       await this.downloadAndStageUpdate(pending);
-      this.launchUpdaterBat(this._stagedUpdate);
+      this.launchUpdater(this._stagedUpdate);
       try {
         Services.startup.quit(Ci.nsIAppStartup.eAttemptQuit);
       } catch (e) {
@@ -4378,11 +4406,11 @@ var Seijaku = {
         try {
           Services.obs.removeObserver(this, "commandline-args-changed");
         } catch (e) { /* never registered, or already gone */ }
-        // A staged update installs now: the .bat waits for this
+        // A staged update installs now: the updater waits for this
         // process to be gone, installs silently, and restarts Seijaku.
         if (this._stagedUpdate && !this._updating) {
           try {
-            this.launchUpdaterBat(this._stagedUpdate);
+            this.launchUpdater(this._stagedUpdate);
           } catch (e) { /* the staged installer just stays in Temp */ }
         }
         break;
