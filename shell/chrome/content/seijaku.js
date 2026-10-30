@@ -19,7 +19,7 @@ const SESSION_FILE = "seijaku-session.json";
 const DATA_FILE = "seijaku-data.json";
 const HISTORY_LIMIT = 1000;
 const MESSAGE_MS = 4000;
-const SEIJAKU_VERSION = "0.2.6";
+const SEIJAKU_VERSION = "0.2.7";
 const UPDATE_REPO = "tacobellerontop-sudo/seijaku_";
 const UPDATE_CHECK_MS = 24 * 60 * 60 * 1000;
 
@@ -439,13 +439,50 @@ var Seijaku = {
   },
 
   isInstalledBuild() {
-    // The installer leaves unins000.exe next to the engine; the
+    // Two independent signals; either one saying "installed" wins.
+    // The old single signal — unins000.exe next to the engine —
+    // proved unreliable: on a genuine installed build, with
+    // unins000.exe visibly present next to the exe, it still
+    // returned false, and the exact CurProcD mechanism cannot be
+    // reproduced outside Windows. So the primary signal is now the
+    // uninstall registry key Inno writes for every install, which
+    // does not depend on CurProcD at all.
+    // 1. Uninstall registry key (HKCU, written by the installer).
+    // open() succeeding means the key exists; throwing means it
+    // does not. Any failure of the registry attempt itself falls
+    // through to the file check below, never out of this method.
+    try {
+      let reg = Cc["@mozilla.org/windows-registry-key;1"]
+        .createInstance(Ci.nsIWindowsRegKey);
+      try {
+        reg.open(
+          Ci.nsIWindowsRegKey.ROOT_KEY_CURRENT_USER,
+          "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{3B84B47F-E97E-4C90-AC83-37273A1DF910}_is1",
+          Ci.nsIWindowsRegKey.ACCESS_READ
+        );
+        return true;
+      } catch (e) {
+        // Key absent: not installed by this signal. Fall through.
+      } finally {
+        try {
+          reg.close();
+        } catch (e) { /* already closed or never opened */ }
+      }
+    } catch (e) {
+      // Registry API unavailable or unusable: fall through to the
+      // file check rather than failing the update flow.
+    }
+    // 2. The installer leaves unins000.exe next to the engine; the
     // portable zip has Seijaku.bat there instead.
     try {
       let dir = Services.dirsvc.get("CurProcD", Ci.nsIFile).clone();
       dir.append("unins000.exe");
       return dir.exists();
     } catch (e) {
+      // If even the fallback cannot be evaluated, prefer
+      // "installed": an installed build must never be misread as
+      // portable. A portable build with no install reaches a clean
+      // false above, not this exception path.
       return true;
     }
   },
@@ -2611,7 +2648,10 @@ var Seijaku = {
       return;
     }
     let loading = !!this.selected?.el.hasAttribute("busy");
-    button.textContent = loading ? "■" : "↻";
+    // Fluent glyphs (Microsoft's Segoe Fluent Icons reference):
+    // E71A Stop, E72C Refresh. Same font stack as the nav buttons
+    // in CSS, so the stop/reload swap renders instantly too.
+    button.textContent = loading ? "\uE71A" : "\uE72C";
     button.title = loading ? "Stop loading (click)" : "Reload (Ctrl+R)";
   },
 

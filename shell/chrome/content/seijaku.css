@@ -342,9 +342,10 @@ body {
   background: transparent;
   color: var(--muted);
   font: inherit;
-  /* Arrows render in Yu Gothic thin and uneven; Segoe UI Symbol draws
-     the ← → ↻ ⋮ set properly on Windows, falling back to the UI font
-     anywhere else. The characters themselves are unchanged. */
+  /* The remaining symbols (star, downloads arrow, lock, menu) render
+     in Segoe UI Symbol, which draws them properly on Windows,
+     falling back to the UI font anywhere else. The nav arrows moved
+     to Segoe Fluent Icons (see the #nav-back rule below). */
   font-family: "Segoe UI Symbol", "Yu Gothic UI", "Yu Gothic", sans-serif;
   font-size: 14px;
   line-height: 1;
@@ -353,6 +354,20 @@ body {
   cursor: pointer;
   -moz-window-dragging: no-drag;
   transition: color 0.15s ease;
+}
+/* Nav arrows come from the same Fluent font as the window buttons,
+   not Segoe UI Symbol: one crisp system font, already loaded in
+   this window, so the glyphs render instantly with no fallback
+   flash or late pop-in (the old arrows needed font fallback, which
+   is what made refresh look slow). Scoped to the nav buttons only
+   — the star, downloads, and lock buttons keep Segoe UI Symbol.
+   16px is one of Microsoft's recommended Fluent sizes; the 24px
+   button boxes, colours, hover, and disabled styling are unchanged. */
+#nav-back,
+#nav-forward,
+#nav-reload {
+  font-family: "Segoe Fluent Icons", "Segoe MDL2 Assets";
+  font-size: 16px;
 }
 .nav-button:hover:not(:disabled) {
   color: var(--fg);
