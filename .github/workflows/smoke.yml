@@ -4,8 +4,9 @@ name: Smoke test
 # Release workflow does, then starts it headless on Windows and runs
 # tests/smoke/smoketest.js inside the real window: web pages in a
 # content process, find, zoom, reader view, camera/microphone and
-# notification prompts, peer connections, and saving. Nothing is
-# published.
+# notification prompts, peer connections, and saving. Before that,
+# tests/update/run.ps1 installs a build and runs its in-app Update
+# against a newer local installer. Nothing is published.
 
 on:
   pull_request:
@@ -29,6 +30,10 @@ jobs:
       - name: Package Seijaku
         shell: pwsh
         run: powershell -ExecutionPolicy Bypass -File scripts\build\package.ps1 -Installer "$env:RUNNER_TEMP\firefox-setup.exe" -Out out
+
+      - name: Run the update test
+        shell: pwsh
+        run: powershell -ExecutionPolicy Bypass -File tests\update\run.ps1 -App out\seijaku
 
       - name: Run the smoke test
         shell: pwsh
