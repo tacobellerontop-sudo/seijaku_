@@ -69,7 +69,18 @@ window.SeijakuDropdown = (() => {
         item.setAttribute("role", "option");
         item.textContent = opt.textContent;
         item.dataset.value = opt.value;
-        item.addEventListener("click", () => pick(opt.value));
+        // Select on mousedown, not click. Clicking an option moves focus
+        // off the button, and any close deferred to a timer would hide
+        // the list before mouseup, so the click never lands (the option
+        // is no longer hit-testable) and the pick never runs. Mousedown
+        // with preventDefault keeps focus on the button AND runs the
+        // pick synchronously in the mousedown task, before any blur or
+        // close can intervene. The change event still fires, so every
+        // existing binding applies unchanged.
+        item.addEventListener("mousedown", e => {
+          e.preventDefault();
+          pick(opt.value);
+        });
         list.append(item);
       }
       sync();
@@ -148,12 +159,17 @@ window.SeijakuDropdown = (() => {
       if (!wrap.contains(e.target)) close();
     });
 
-    // Tabbing away closes it too. The timeout lets a click on an option
-    // land first (mousedown fires before blur, click after).
+    // Focus leaving the button means the list is done: close it at
+    // once. There is deliberately no setTimeout here. A deferred close
+    // can fire between mousedown and mouseup (a 0ms timer runs in
+    // ~4ms; a click takes longer), hiding the list mid-click and
+    // swallowing the selection — that was the bug. Option clicks never
+    // reach this handler at all (their mousedown prevents the focus
+    // shift), so blur only fires for genuine focus loss — clicking
+    // outside, tabbing away — where closing immediately is exactly
+    // right.
     btn.addEventListener("blur", () => {
-      setTimeout(() => {
-        if (document.activeElement !== btn) close();
-      }, 0);
+      if (document.activeElement !== btn) close();
     });
 
     // Programmatic value sets that fire change (and the component's own
