@@ -108,7 +108,6 @@ class Tab {
     // muted; clicking it mutes or unmutes the tab (see toggleMute).
     this.speakerEl = document.createElement("span");
     this.speakerEl.className = "tab-speaker";
-    this.speakerEl.textContent = "\u266a";
     this.speakerEl.title = "Mute this tab";
     this.el.append(this.labelEl, this.speakerEl);
     this.el.tab = this;
@@ -1595,11 +1594,12 @@ var Seijaku = {
       return;
     }
     lock.hidden = false;
+    // The glyph is drawn in CSS from the state: a closed lock when
+    // secure, an open one otherwise.
+    lock.setAttribute("state", tab.security);
     if (tab.security == "secure") {
-      lock.textContent = "🔒";
       lock.title = "Connection is secure — click for site information";
     } else {
-      lock.textContent = "⚠";
       lock.title = "Connection is not secure — click for site information";
     }
   },
@@ -1971,7 +1971,6 @@ var Seijaku = {
       return;
     }
     let marked = !!(this.selected?.url && this.isBookmarked(this.selected.url));
-    star.textContent = marked ? "★" : "☆";
     star.toggleAttribute("bookmarked", marked);
     star.title = marked ? "Remove bookmark (Ctrl+D)" : "Bookmark this page (Ctrl+D)";
   },
@@ -2379,20 +2378,21 @@ var Seijaku = {
     } catch (e) {}
   },
 
-  /** The strip button: plain arrow when idle, first active download's
-      percentage while one runs (plain text, so it still reads if the
-      arrow glyph is unavailable). DOM writes only on a real change,
-      because download-changed callbacks fire very often. */
+  /** The strip button: the arrow alone when idle, the arrow plus the
+      first active download's percentage while one runs. DOM writes
+      only on a real change, because download-changed callbacks fire
+      very often. */
   updateDownloadsButton() {
     let btn = document.getElementById("downloads-button");
     if (!btn) {
       return;
     }
     let active = (this._downloads ?? []).find(e => e.state == "downloading");
-    let label = "↓";
+    // The arrow is drawn in CSS; the label is only the percentage.
+    let label = "";
     let title = "Downloads (Ctrl+J)";
     if (active) {
-      label = `↓ ${active.progress || 0}%`;
+      label = `${active.progress || 0}%`;
       title = `Downloading: ${active.progress || 0}% — Downloads (Ctrl+J)`;
     }
     if (btn.textContent != label) {
@@ -2790,10 +2790,9 @@ var Seijaku = {
       return;
     }
     let loading = !!this.selected?.el.hasAttribute("busy");
-    // Material Icons codepoints (Google's codepoints list):
-    // E047 stop, E5D5 refresh. Same font as the nav buttons in CSS,
-    // so the stop/reload swap renders instantly too.
-    button.textContent = loading ? "\uE047" : "\uE5D5";
+    // The reload and stop glyphs are both drawn in CSS, so the swap
+    // is one attribute and renders instantly.
+    button.toggleAttribute("loading", loading);
     button.title = loading ? "Stop loading (click)" : "Reload (Ctrl+R)";
   },
 

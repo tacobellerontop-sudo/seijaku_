@@ -14,6 +14,8 @@ h1 {
 label {
   display: block;
   margin-top: 20px;
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .field {
@@ -34,20 +36,28 @@ h2 {
   font-family: "Yu Mincho", "MS Mincho", serif;
   font-size: 20px;
   font-weight: normal;
-  margin: 32px 0 0;
+  margin: 44px 0 0;
 }
 
 label input,
 label select,
-label button {
+label button,
+label .dd-wrap {
   display: block;
   margin-top: 6px;
   box-sizing: border-box;
+  color: var(--fg);
+  font-size: 13px;
 }
 
 label input:not([type="checkbox"]),
 label select {
   width: 100%;
+}
+
+label:has(input[type="checkbox"]) {
+  color: var(--fg);
+  font-size: 13px;
 }
 
 label input[type="checkbox"] {
@@ -59,6 +69,12 @@ label input[type="checkbox"] {
 
 #setting-custom-theme[hidden] {
   display: none;
+}
+
+#setting-custom-theme {
+  margin-top: 8px;
+  padding: 2px 14px 12px;
+  border-left: 2px solid var(--line);
 }
 
 #setting-custom-theme input[type="color"] {
