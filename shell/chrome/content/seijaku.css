@@ -8,6 +8,16 @@
    There is no persistent address bar: the strip below is the whole
    chrome, and a floating panel (Ctrl+T / Ctrl+L) is the address bar. */
 
+/* Bundled Material Icons, subset to the four nav glyphs only (612 bytes).
+   Shipped inside the shell, so the nav glyphs render offline with no
+   network fetch. chrome://seijaku/content/ maps to chrome/content/ (see
+   chrome.manifest), and package.ps1 copies the whole shell dir, so this
+   file ships in both installer and portable builds. */
+@font-face {
+  font-family: "Material Icons";
+  src: url("chrome://seijaku/content/fonts/material-icons.woff2") format("woff2");
+}
+
 :root {
   --font: "Yu Gothic UI", "Yu Gothic", "Meiryo", sans-serif;
   --serif: "Yu Mincho", "MS Mincho", serif;
@@ -344,8 +354,8 @@ body {
   font: inherit;
   /* The remaining symbols (star, downloads arrow, lock, menu) render
      in Segoe UI Symbol, which draws them properly on Windows,
-     falling back to the UI font anywhere else. The nav arrows moved
-     to Segoe Fluent Icons (see the #nav-back rule below). */
+     falling back to the UI font anywhere else. The nav buttons use
+     bundled Material Icons instead (see the #nav-back rule below). */
   font-family: "Segoe UI Symbol", "Yu Gothic UI", "Yu Gothic", sans-serif;
   font-size: 14px;
   line-height: 1;
@@ -355,19 +365,19 @@ body {
   -moz-window-dragging: no-drag;
   transition: color 0.15s ease;
 }
-/* Nav arrows come from the same Fluent font as the window buttons,
-   not Segoe UI Symbol: one crisp system font, already loaded in
-   this window, so the glyphs render instantly with no fallback
-   flash or late pop-in (the old arrows needed font fallback, which
-   is what made refresh look slow). Scoped to the nav buttons only
-   — the star, downloads, and lock buttons keep Segoe UI Symbol.
-   16px is one of Microsoft's recommended Fluent sizes; the 24px
-   button boxes, colours, hover, and disabled styling are unchanged. */
+/* Nav glyphs come from bundled Material Icons: bold filled shapes that
+   match the reference toolbar icons, drawn from a file inside the
+   shell, so they render instantly with no fallback flash or late
+   pop-in. Scoped to the nav buttons only — the star, downloads, and
+   lock buttons keep Segoe UI Symbol. Material glyphs are drawn on a
+   24px grid; 20px inside the unchanged 24px button boxes matches the
+   reference's visual weight with a small margin. Button boxes,
+   colours, hover, and disabled styling are unchanged. */
 #nav-back,
 #nav-forward,
 #nav-reload {
-  font-family: "Segoe Fluent Icons", "Segoe MDL2 Assets";
-  font-size: 16px;
+  font-family: "Material Icons";
+  font-size: 20px;
 }
 .nav-button:hover:not(:disabled) {
   color: var(--fg);

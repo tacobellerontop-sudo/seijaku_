@@ -19,7 +19,7 @@ const SESSION_FILE = "seijaku-session.json";
 const DATA_FILE = "seijaku-data.json";
 const HISTORY_LIMIT = 1000;
 const MESSAGE_MS = 4000;
-const SEIJAKU_VERSION = "0.2.7";
+const SEIJAKU_VERSION = "0.2.8";
 const UPDATE_REPO = "tacobellerontop-sudo/seijaku_";
 const UPDATE_CHECK_MS = 24 * 60 * 60 * 1000;
 
@@ -2648,10 +2648,10 @@ var Seijaku = {
       return;
     }
     let loading = !!this.selected?.el.hasAttribute("busy");
-    // Fluent glyphs (Microsoft's Segoe Fluent Icons reference):
-    // E71A Stop, E72C Refresh. Same font stack as the nav buttons
-    // in CSS, so the stop/reload swap renders instantly too.
-    button.textContent = loading ? "\uE71A" : "\uE72C";
+    // Material Icons codepoints (Google's codepoints list):
+    // E047 stop, E5D5 refresh. Same font as the nav buttons in CSS,
+    // so the stop/reload swap renders instantly too.
+    button.textContent = loading ? "\uE047" : "\uE5D5";
     button.title = loading ? "Stop loading (click)" : "Reload (Ctrl+R)";
   },
 
