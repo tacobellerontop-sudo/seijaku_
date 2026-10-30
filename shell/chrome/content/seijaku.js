@@ -2966,6 +2966,11 @@ var Seijaku = {
         if (!webProgress.isTopLevel) {
           return;
         }
+        // The browser's own pages stay neutral: the engine reports
+        // them as not secure, which put a warning mark on Home.
+        if (tab.security == "internal") {
+          return;
+        }
         try {
           if (state & Ci.nsIWebProgressListener.STATE_IS_SECURE) {
             tab.security = "secure";

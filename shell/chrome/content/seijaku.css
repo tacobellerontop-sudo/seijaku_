@@ -39,6 +39,11 @@
   font: var(--font-size) var(--font);
 }
 
+::selection {
+  background: color-mix(in srgb, var(--accent) 35%, transparent);
+  color: inherit;
+}
+
 body {
   margin: 0;
   height: 100%;
