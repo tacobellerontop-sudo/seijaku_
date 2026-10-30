@@ -58,6 +58,43 @@ function etaText(seconds) {
   return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m left`;
 }
 
+// The meta line under each row, by download key, so a progress-only
+// change rewrites text instead of rebuilding the rows.
+let metaEls = new Map();
+
+function metaText(dl, now) {
+  let parts = [stateText(dl.state)];
+  if (dl.state == "downloading") {
+    parts.push(`${dl.progress}%`);
+    // Speed from this poll's delta; ETA from speed and remainder.
+    let last = prev.get(dl.key);
+    prev.set(dl.key, { time: now, current: dl.current });
+    if (last) {
+      let dt = (now - last.time) / 1000;
+      let db = dl.current - last.current;
+      if (dt > 0 && db > 0) {
+        let speed = db / dt;
+        parts.push(`${sizeText(speed)}/s`);
+        if (dl.total > 0) {
+          let eta = etaText((dl.total - dl.current) / speed);
+          if (eta) {
+            parts.push(eta);
+          }
+        }
+      }
+    }
+  } else {
+    prev.delete(dl.key);
+  }
+  let sizes = [sizeText(dl.current), dl.total > 0 ? sizeText(dl.total) : ""]
+    .filter(Boolean)
+    .join(" of ");
+  if (sizes) {
+    parts.push(sizes);
+  }
+  return parts.join("  ·  ");
+}
+
 function render() {
   let shell = shellWindow()?.Seijaku;
   if (!shell) {
@@ -68,25 +105,34 @@ function render() {
   let note = document.getElementById("unavailable");
   note.hidden = shell.downloadsReady();
   let downloads = shell.getDownloads();
-  // Only rebuild when something changed, so a static list doesn't
-  // tear itself down (and steal focus) every half second. While
-  // anything is downloading the list always rebuilds: progress moves,
-  // and speed/ETA need a fresh sample each poll.
-  let key = JSON.stringify(downloads);
-  if (key == render._last && !downloads.some(d => d.state == "downloading")) {
-    return;
-  }
-  render._last = key;
   let query = (document.getElementById("search").value || "").trim().toLowerCase();
   let shown = query
     ? downloads.filter(d =>
         `${d.name || ""} ${d.path || ""} ${d.source || ""}`.toLowerCase().includes(query)
       )
     : downloads;
+  let now = Date.now();
+  // Rows are rebuilt only when the list itself changes (an entry, a
+  // state, the search). Progress alone just rewrites each meta line:
+  // rebuilding every half second while a download ran replaced the
+  // buttons under the pointer, so a click on Pause or Cancel could
+  // land on a row that no longer existed.
+  let key = JSON.stringify([query, shell.downloadsReady(), shown.map(({ progress, current, ...rest }) => rest)]);
+  if (key == render._last) {
+    for (let dl of shown) {
+      let meta = metaEls.get(dl.key);
+      let text = metaText(dl, now);
+      if (meta && meta.textContent != text) {
+        meta.textContent = text;
+      }
+    }
+    return;
+  }
+  render._last = key;
   list.replaceChildren();
+  metaEls.clear();
   empty.hidden = shown.length != 0 || !shell.downloadsReady();
   empty.textContent = query ? "Nothing matches that search." : "No downloads yet.";
-  let now = Date.now();
   for (let dl of shown) {
     let row = document.createElement("div");
     row.className = "row";
@@ -97,36 +143,8 @@ function render() {
     name.textContent = dl.name || dl.path || "Download";
     let meta = document.createElement("div");
     meta.className = "row-meta";
-    let parts = [stateText(dl.state)];
-    if (dl.state == "downloading") {
-      parts.push(`${dl.progress}%`);
-      // Speed from this poll's delta; ETA from speed and remainder.
-      let last = prev.get(dl.key);
-      prev.set(dl.key, { time: now, current: dl.current });
-      if (last) {
-        let dt = (now - last.time) / 1000;
-        let db = dl.current - last.current;
-        if (dt > 0 && db > 0) {
-          let speed = db / dt;
-          parts.push(`${sizeText(speed)}/s`);
-          if (dl.total > 0) {
-            let eta = etaText((dl.total - dl.current) / speed);
-            if (eta) {
-              parts.push(eta);
-            }
-          }
-        }
-      }
-    } else {
-      prev.delete(dl.key);
-    }
-    let sizes = [sizeText(dl.current), dl.total > 0 ? sizeText(dl.total) : ""]
-      .filter(Boolean)
-      .join(" of ");
-    if (sizes) {
-      parts.push(sizes);
-    }
-    meta.textContent = parts.join("  ·  ");
+    meta.textContent = metaText(dl, now);
+    metaEls.set(dl.key, meta);
     main.append(name, meta);
     row.append(main);
     let act = (label, action) => {
@@ -178,5 +196,16 @@ window.addEventListener("DOMContentLoaded", () => {
     render();
   });
   render();
-  setInterval(render, 500);
+  // Polling only matters while the page is on screen; a background
+  // downloads tab stops working until it is selected again.
+  setInterval(() => {
+    if (!document.hidden) {
+      render();
+    }
+  }, 500);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) {
+      render();
+    }
+  });
 });

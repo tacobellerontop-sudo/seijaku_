@@ -1,0 +1,7 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>gum:waiting</title></head><body>
+<script>
+navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+  .then(stream => { document.title = "gum:ok:" + stream.getTracks().length; })
+  .catch(e => { document.title = "gum:error:" + e.name; });
+</script></body></html>

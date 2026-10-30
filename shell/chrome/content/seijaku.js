@@ -14,14 +14,58 @@ const { E10SUtils } = ChromeUtils.importESModule(
 const Theme = ChromeUtils.importESModule("resource://seijaku/Theme.sys.mjs");
 const Widevine = ChromeUtils.importESModule("resource://seijaku/Widevine.sys.mjs");
 
+// The engine's own page actors (Select, Finder, UAWidgets, AudioPlayback,
+// AutoScroll and the rest) are registered by whoever imports this
+// module. In Firefox that is the front end (browser/), which the
+// packager drops, so without this line web pages get no <select>
+// dropdowns, no video controls, no find, no sound events. Importing it
+// registers the toolkit set once per process; later windows reuse it.
+try {
+  ChromeUtils.importESModule("resource://gre/modules/ActorManagerParent.sys.mjs");
+} catch (e) {
+  console.error("Seijaku: registering the engine's page actors", e);
+}
+
+// Seijaku's own actor: reader view runs Readability inside the page's
+// process, because web pages live in a content process and the chrome
+// window cannot reach their document directly. Registering twice (a
+// second window) throws, which is fine: the first registration stands.
+try {
+  ChromeUtils.registerWindowActor("SeijakuReader", {
+    parent: { esModuleURI: "resource://seijaku/SeijakuReaderParent.sys.mjs" },
+    child: { esModuleURI: "resource://seijaku/SeijakuReaderChild.sys.mjs" },
+    messageManagerGroups: ["browsers"],
+    // Web pages run in "untrusted" web processes, which an actor may
+    // only enter when it says it is safe there: this one only reads
+    // the page it is in and returns text, and the shell sanitises it.
+    safeForUntrustedWebProcess: true,
+  });
+} catch (e) { /* already registered by another window */ }
+
+// Site permission prompts (notifications, camera, microphone): see
+// PermissionPrompt.sys.mjs for why these are registered at runtime.
+try {
+  ChromeUtils.importESModule("resource://seijaku/PermissionPrompt.sys.mjs").register();
+} catch (e) {
+  console.error("Seijaku: registering permission prompts", e);
+}
+
 const PREF = "seijaku.";
 const SESSION_FILE = "seijaku-session.json";
 const DATA_FILE = "seijaku-data.json";
 const HISTORY_LIMIT = 1000;
 const MESSAGE_MS = 4000;
-const SEIJAKU_VERSION = "0.2.9";
+const SEIJAKU_VERSION = "0.2.10";
 const UPDATE_REPO = "tacobellerontop-sudo/seijaku_";
 const UPDATE_CHECK_MS = 24 * 60 * 60 * 1000;
+// Session and data writes are batched: a page load reports its
+// address, title and finish separately, and each used to rewrite the
+// whole file. One write per second at most, flushed on close.
+const SAVE_DELAY_MS = 1000;
+
+function emptyData() {
+  return { bookmarks: [], history: [], permissions: {}, folders: [], downloadsHistory: [] };
+}
 
 const PAGES = {
   "seijaku:home": "chrome://seijaku/content/pages/home.html",
@@ -608,7 +652,9 @@ var Seijaku = {
       return;
     }
     if (topic == "nsPref:changed" && data.startsWith(PREF)) {
-      this.applyTheme();
+      if (data == PREF + "theme" || data.startsWith(PREF + "theme.")) {
+        this.applyTheme();
+      }
       if (data == PREF + "trackingprotection") {
         this.applyTrackingProtection();
       }
@@ -756,6 +802,7 @@ var Seijaku = {
     if (!["top", "bottom", "left", "right"].includes(position)) {
       position = "top";
     }
+    this._tabsPosition = position;
     document.documentElement.setAttribute("tabs-position", position);
   },
 
@@ -866,53 +913,129 @@ var Seijaku = {
     }
   },
 
-  loadData() {
-    let path = this.dataPath();
-    if (!path) {
-      this._data = { bookmarks: [], history: [], permissions: {}, downloadsHistory: [] };
-      return;
-    }
-    IOUtils.readJSON(path)
-      .then(data => {
-        // Bookmarks carry a folder ("" is All); older stores have
-        // none, so they migrate to All here. Folder names the user
-        // created live alongside, so an empty folder still exists.
-        let bookmarks = Array.isArray(data?.bookmarks) ? data.bookmarks : [];
-        for (let b of bookmarks) {
-          if (typeof b.folder != "string") {
-            b.folder = "";
+  /** The window whose store this one uses. A private window shares
+      the main window's live store (bookmarks are shared, the way
+      Firefox does it) instead of loading a copy of its own: two
+      copies of one file would each overwrite the other's changes. */
+  dataOwner() {
+    if (this.isPrivate) {
+      try {
+        for (let win of Services.wm.getEnumerator("seijaku:main")) {
+          let other = win.Seijaku;
+          if (win != window && !win.closed && other && !other.isPrivate && other._dataLoaded) {
+            return other;
           }
         }
-        this._data = {
-          bookmarks,
-          history: Array.isArray(data?.history) ? data.history : [],
-          permissions: data?.permissions && typeof data.permissions == "object" ? data.permissions : {},
-          folders: Array.isArray(data?.folders)
-            ? data.folders.filter(f => typeof f == "string" && f)
-            : [],
-          downloadsHistory: Array.isArray(data?.downloadsHistory)
-            ? data.downloadsHistory.filter(e => e && typeof e.path == "string")
-            : [],
-        };
-      })
-      .catch(() => {
-        this._data = { bookmarks: [], history: [], permissions: {}, folders: [], downloadsHistory: [] };
-      });
+      } catch (e) { /* fall back to this window's own copy */ }
+    }
+    return this;
   },
 
-  saveData() {
-    let path = this.dataPath();
-    if (!path || !this._data) {
+  async loadData() {
+    let owner = this.dataOwner();
+    if (owner != this) {
+      this._data = owner._data;
+      this._dataLoaded = true;
       return;
     }
-    IOUtils.writeJSON(path, this._data).catch(e =>
+    let path = this.dataPath();
+    if (!path) {
+      this._data ??= emptyData();
+      this._dataLoaded = true;
+      return;
+    }
+    let loaded = emptyData();
+    try {
+      let data = await IOUtils.readJSON(path);
+      // Bookmarks carry a folder ("" is All); older stores have
+      // none, so they migrate to All here. Folder names the user
+      // created live alongside, so an empty folder still exists.
+      let bookmarks = Array.isArray(data?.bookmarks) ? data.bookmarks : [];
+      for (let b of bookmarks) {
+        if (typeof b.folder != "string") {
+          b.folder = "";
+        }
+      }
+      loaded = {
+        bookmarks,
+        history: Array.isArray(data?.history) ? data.history : [],
+        permissions: data?.permissions && typeof data.permissions == "object" ? data.permissions : {},
+        folders: Array.isArray(data?.folders)
+          ? data.folders.filter(f => typeof f == "string" && f)
+          : [],
+        downloadsHistory: Array.isArray(data?.downloadsHistory)
+          ? data.downloadsHistory.filter(e => e && typeof e.path == "string")
+          : [],
+      };
+    } catch (e) {
+      // A missing file is a first run. Anything else is a damaged
+      // file: keep a copy before the next save replaces it, so the
+      // bookmarks in it can still be recovered by hand.
+      if (e?.name != "NotFoundError") {
+        console.error("Seijaku: reading data", e);
+        await IOUtils.copy(path, path + ".damaged").catch(() => {});
+      }
+    }
+    // Anything recorded before the file finished loading (the first
+    // page's history entry, a quick Ctrl+D) is merged in, not lost.
+    let early = this._data;
+    this._data = loaded;
+    this._dataLoaded = true;
+    if (early) {
+      let marked = new Set(loaded.bookmarks.map(b => b.url));
+      loaded.bookmarks.push(...early.bookmarks.filter(b => !marked.has(b.url)));
+      loaded.history.push(...early.history);
+      if (loaded.history.length > HISTORY_LIMIT) {
+        loaded.history.splice(0, loaded.history.length - HISTORY_LIMIT);
+      }
+      for (let [host, grants] of Object.entries(early.permissions)) {
+        loaded.permissions[host] = { ...loaded.permissions[host], ...grants };
+      }
+      loaded.folders.push(...early.folders.filter(f => !loaded.folders.includes(f)));
+      loaded.downloadsHistory.unshift(...early.downloadsHistory);
+      this.saveData();
+    }
+    this.updateBookmarkStar();
+    this.updatePermLock();
+  },
+
+  /** Marks the data file for writing; see flushData. */
+  saveData() {
+    if (!this._data) {
+      return;
+    }
+    let owner = this.dataOwner();
+    if (owner != this && owner._data === this._data) {
+      owner.saveData();
+      return;
+    }
+    this._dataDirty = true;
+    // Never write before the file has loaded: that would replace the
+    // user's bookmarks with whatever this window has seen so far.
+    if (this._dataLoaded && !this._dataTimer) {
+      this._dataTimer = setTimeout(() => this.flushData(), SAVE_DELAY_MS);
+    }
+  },
+
+  /** Writes the data file now, if anything changed. The write goes to
+      a temporary file first and is then moved over the real one, so a
+      crash mid-write can never leave a half-written store behind. */
+  flushData() {
+    clearTimeout(this._dataTimer);
+    this._dataTimer = null;
+    let path = this.dataPath();
+    if (!path || !this._dataDirty || !this._dataLoaded) {
+      return;
+    }
+    this._dataDirty = false;
+    IOUtils.writeJSON(path, this._data, { tmpPath: path + ".tmp" }).catch(e =>
       console.error("Seijaku: saving data", e)
     );
   },
 
   /** True once the data file has loaded (home counts wait for this). */
   dataReady() {
-    return !!this._data;
+    return !!this._dataLoaded;
   },
 
   getBookmarks() {
@@ -930,7 +1053,7 @@ var Seijaku = {
       return;
     }
     if (!this._data) {
-      this._data = { bookmarks: [], history: [], permissions: {}, downloadsHistory: [] };
+      this._data = emptyData();
     }
     let index = this._data.bookmarks.findIndex(b => b.url == tab.url);
     if (index >= 0) {
@@ -1163,7 +1286,7 @@ var Seijaku = {
   /** Merges parsed bookmarks, skipping URLs already stored. */
   mergeBookmarks(parsed) {
     if (!this._data) {
-      this._data = { bookmarks: [], history: [], permissions: {}, folders: [], downloadsHistory: [] };
+      this._data = emptyData();
     }
     let have = new Set(this._data.bookmarks.map(b => b.url));
     let added = 0;
@@ -1686,9 +1809,10 @@ var Seijaku = {
       }
     }
     if (this._data) {
-      for (let item of this._data.bookmarks.slice().reverse()) {
-        if (match(item.title, item.url)) {
-          out.push({ kind: "Bookmark", title: item.title || item.url, url: item.url });
+      let marks = this._data.bookmarks;
+      for (let i = marks.length - 1; i >= 0 && out.length < 12; i--) {
+        if (match(marks[i].title, marks[i].url)) {
+          out.push({ kind: "Bookmark", title: marks[i].title || marks[i].url, url: marks[i].url });
         }
       }
     }
@@ -1808,7 +1932,7 @@ var Seijaku = {
       return;
     }
     if (!this._data) {
-      this._data = { bookmarks: [], history: [], permissions: {} };
+      this._data = emptyData();
     }
     let last = this._data.history[this._data.history.length - 1];
     if (last && last.url == url) {
@@ -2584,11 +2708,12 @@ var Seijaku = {
       take({ url: tab.url, title: tab.title, tab });
     }
     if (this._data) {
-      for (let item of this._data.bookmarks.slice().reverse()) {
-        take(item);
-      }
-      for (let item of this._data.history.slice().reverse()) {
-        take(item);
+      // Newest first, walking backwards instead of copying the lists:
+      // this runs on every keystroke, and history holds 1000 entries.
+      for (let list of [this._data.bookmarks, this._data.history]) {
+        for (let i = list.length - 1; i >= 0 && out.length < 8; i--) {
+          take(list[i]);
+        }
       }
     }
     return out;
@@ -3028,6 +3153,12 @@ var Seijaku = {
       return;
     }
     let index = this.tabs.indexOf(tab);
+    if (this.tabs.length == 1) {
+      // Closing the last tab closes the window; the session keeps
+      // that tab, so the next start brings it back as before.
+      this.saveSession();
+      this.flushSession();
+    }
     this.closed.push({ url: tab.url, title: tab.title, index });
     if (this.closed.length > 20) {
       this.closed.shift();
@@ -3060,9 +3191,12 @@ var Seijaku = {
 
   // -------------------------------------------------------------- find, zoom
   //
-  // Both ride on the page itself, so they cost nothing when unused:
-  // find uses the content window's own text search, zoom uses the
-  // page's document viewer. No extra processes, no extra UI until
+  // Both ride on the page itself, so they cost nothing when unused.
+  // Web pages live in a content process, so the chrome window cannot
+  // search or zoom their document directly (contentWindow is null for
+  // them): find goes through the browser's finder, which talks to the
+  // page's Finder actor, and zoom sets the browsing context's zoom,
+  // which works for every page in any process. No extra UI until
   // asked for.
 
   initFindBar() {
@@ -3086,17 +3220,64 @@ var Seijaku = {
   hideFindBar() {
     document.getElementById("findbar").hidden = true;
     try {
+      let finder = this.selectedBrowser?.finder;
+      if (finder) {
+        finder.removeSelection();
+        finder.focusContent();
+        return;
+      }
+    } catch (e) { /* fall through to the in-process selection */ }
+    try {
       this.selectedBrowser?.contentWindow?.getSelection()?.removeAllRanges();
     } catch (e) { /* clearing a highlight is never worth an error */ }
   },
 
+  /** The browser's finder, with Seijaku's result listener attached
+      once (a "not found" note on the message line). */
+  finderFor(browser) {
+    let finder = null;
+    try {
+      finder = browser.finder;
+    } catch (e) {
+      return null;
+    }
+    if (finder && !finder._seijakuListening) {
+      finder._seijakuListening = true;
+      finder.addResultListener({
+        onFindResult: data => {
+          if (data.result == Ci.nsITypeAheadFind.FIND_NOTFOUND && data.searchString) {
+            this.showMessage(`"${data.searchString}" not found`);
+          }
+        },
+        onMatchesCountResult() {},
+        onHighlightFinished() {},
+        onCurrentSelection() {},
+      });
+    }
+    return finder;
+  },
+
   findInPage(backwards = false) {
     let term = document.getElementById("find-input").value;
-    if (!term) {
+    let browser = this.selectedBrowser;
+    if (!term || !browser) {
       return;
     }
-    let win = this.selectedBrowser?.contentWindow;
+    let finder = this.finderFor(browser);
+    if (finder) {
+      try {
+        // A new term starts from the top; the same term moves on.
+        if (finder.searchString != term) {
+          finder.fastFind(term, false, false);
+        } else {
+          finder.findAgain(term, backwards, false, false);
+        }
+        return;
+      } catch (e) { /* fall through to the in-process search */ }
+    }
+    let win = browser.contentWindow;
     if (!win) {
+      this.showMessage("Find isn't available on this page", "error");
       return;
     }
     let found = false;
@@ -3117,9 +3298,10 @@ var Seijaku = {
       return;
     }
     try {
-      let viewer = b.markupDocumentViewer;
-      viewer.fullZoom = Math.min(3, Math.max(0.3, Math.round((viewer.fullZoom + step) * 10) / 10));
-      this.showMessage(`Zoom ${Math.round(viewer.fullZoom * 100)}%`);
+      let context = b.browsingContext;
+      let zoom = Math.min(3, Math.max(0.3, Math.round((context.fullZoom + step) * 10) / 10));
+      context.fullZoom = zoom;
+      this.showMessage(`Zoom ${Math.round(zoom * 100)}%`);
     } catch (e) {
       this.showMessage("Zoom isn't available on this page", "error");
     }
@@ -3131,7 +3313,8 @@ var Seijaku = {
       return;
     }
     try {
-      b.markupDocumentViewer.fullZoom = 1;
+      b.browsingContext.fullZoom = 1;
+      this.showMessage("Zoom 100%");
     } catch (e) { /* internal pages just stay as they are */ }
   },
 
@@ -3233,16 +3416,31 @@ var Seijaku = {
     };
   },
 
+  /** Marks the session for writing; see flushSession. */
   saveSession() {
     // A private window never writes the shared session file.
     if (this.isPrivate) {
       return;
     }
+    this._sessionDirty = true;
+    if (!this._sessionTimer) {
+      this._sessionTimer = setTimeout(() => this.flushSession(), SAVE_DELAY_MS);
+    }
+  },
+
+  /** Writes the session now, if anything changed (atomically, as
+      flushData does). */
+  flushSession() {
+    clearTimeout(this._sessionTimer);
+    this._sessionTimer = null;
     let path = this.sessionPath();
-    if (!path) {
+    if (!path || !this._sessionDirty || this.isPrivate) {
       return;
     }
-    IOUtils.writeJSON(path, this.sessionData()).catch(e => console.error("Seijaku: saving session", e));
+    this._sessionDirty = false;
+    IOUtils.writeJSON(path, this.sessionData(), { tmpPath: path + ".tmp" }).catch(e =>
+      console.error("Seijaku: saving session", e)
+    );
   },
 
   restoreSession() {
@@ -3312,10 +3510,9 @@ var Seijaku = {
   // -------------------------------------------------------------- site permissions
   //
   // When a site asks for the camera, microphone, or notifications,
-  // the engine routes the request through the prompt component
-  // (shell/components/PermissionPrompt.js, registered in
-  // chrome.manifest), which hands it to queuePermissionRequest
-  // here. The prompt is a XUL panel at the top centre of the window
+  // the engine's request reaches queuePermissionRequest here through
+  // shell/modules/PermissionPrompt.sys.mjs (registered at the top of
+  // this file). The prompt is a XUL panel at the top centre of the window
   // — where the floating bar appears — with the site, what it wants,
   // Allow / Block, and a remember checkbox. Remembered decisions
   // live in seijaku-data.json next to bookmarks and history, and
@@ -3324,10 +3521,6 @@ var Seijaku = {
   // everything: when it is on, sites get access at once with no
   // prompt. Location is denied outright, by pref (geo.enabled) and
   // again in the component — it never reaches a prompt.
-  // UNVERIFIED ON WINDOWS: the component registration step is the
-  // standard XUL-shell mechanism, but no Windows run has yet shown
-  // a prompt from a real camera test page. If prompts never appear,
-  // the allow-switch still works, and a denied request fails safe.
 
   permissionTypeText(type) {
     return {
@@ -3787,41 +3980,53 @@ var Seijaku = {
   // element with the most paragraph text. The article is held on the
   // shell for the reader page to read; it is never written to disk.
 
-  openReader() {
+  async openReader() {
     let b = this.selectedBrowser;
     if (!b) {
       return;
     }
-    let doc = null;
-    try {
-      doc = b.contentWindow.document;
-    } catch (e) {
-      this.showMessage("Reader view isn't available on this page", "error");
-      return;
-    }
     let article = null;
+    // A web page: ask Seijaku's reader actor, which runs inside the
+    // page's own process (see SeijakuReaderChild.sys.mjs).
     try {
-      let { Readability } = ChromeUtils.importESModule(
-        "resource://gre/modules/Readability.sys.mjs"
-      );
-      article = new Readability(doc.cloneNode(true)).parse();
-    } catch (e) { /* fall through to the naive extraction */ }
+      let actor = b.browsingContext?.currentWindowGlobal?.getActor("SeijakuReader");
+      article = actor ? await actor.sendQuery("Seijaku:Extract") : null;
+    } catch (e) { /* not a page the actor runs in; try in-process */ }
+    // A page in this process (the browser's own pages): read it here.
     if (!article?.content) {
+      let doc = null;
       try {
-        article = this.naiveArticle(doc);
-      } catch (e) {
-        article = null;
+        doc = b.contentWindow?.document ?? null;
+      } catch (e) { /* no in-process document */ }
+      if (doc) {
+        try {
+          article = this.naiveArticle(doc);
+        } catch (e) {
+          article = null;
+        }
       }
     }
     if (!article?.content) {
       this.showMessage("No readable article on this page", "error");
       return;
     }
+    // The article is the web page's own markup, and the reader page
+    // that renders it is a privileged chrome page: strip scripts,
+    // event handlers and forms before it gets anywhere near there.
+    let content = "";
+    try {
+      content = Cc["@mozilla.org/parserutils;1"]
+        .getService(Ci.nsIParserUtils)
+        .sanitize(article.content, Ci.nsIParserUtils.SanitizerDropForms);
+    } catch (e) {
+      this.showMessage("Reader view couldn't clean up this page", "error");
+      return;
+    }
     this._readerArticle = {
-      title: article.title || this.selected?.title || "",
+      title: article.title || b.tab?.title || "",
       byline: article.byline || "",
-      content: article.content,
-      url: this.selected?.url || "",
+      content,
+      url: b.tab?.url || "",
     };
     // Always a fresh reader tab: openPage would select an existing
     // reader tab, which already rendered and would show the OLD
@@ -3840,7 +4045,7 @@ var Seijaku = {
     let candidates = doc.querySelectorAll("article, main, [role='main']");
     let roots = candidates.length ? [...candidates] : [doc.body];
     for (let root of roots) {
-      let text = root?.innerText?.length ?? 0;
+      let text = root?.textContent?.length ?? 0;
       if (text > bestText) {
         bestText = text;
         best = root;
@@ -3952,7 +4157,7 @@ var Seijaku = {
         // reach this window at all. This covers the pointer already
         // sitting over chrome at the placement edge.
         if (this._autohide) {
-          let position = this.pref("tabs.position", "top");
+          let position = this._tabsPosition;
           let atEdge =
             (position == "top" && event.clientY <= 4) ||
             (position == "bottom" && event.clientY >= window.innerHeight - 4) ||
@@ -3966,6 +4171,15 @@ var Seijaku = {
       }
       case "unload":
         clearInterval(this._sleepTimer);
+        // Pending writes go out now; the engine finishes them before
+        // the process exits.
+        if (this.tabs.length) {
+          this.flushSession();
+        }
+        this.flushData();
+        try {
+          Services.prefs.removeObserver(PREF, this);
+        } catch (e) { /* never registered */ }
         try {
           Services.obs.removeObserver(this, "commandline-args-changed");
         } catch (e) { /* never registered, or already gone */ }

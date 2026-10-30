@@ -3,5 +3,3 @@ resource seijaku modules/
 content branding chrome/branding/
 locale branding en-US chrome/branding/
 category l10n-registry 5-seijaku resource://app/localization/{locale}/
-component {2cb09dc6-60e9-450e-b2c7-258a9ae0bd57} components/PermissionPrompt.js
-contract @mozilla.org/content-permission/prompt;1 {2cb09dc6-60e9-450e-b2c7-258a9ae0bd57}

@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Smoke article</title></head>
+<body>
+<header><nav><a href="/">Home</a> <a href="/about">About</a></nav></header>
+<article>
+<h1>The quiet garden</h1>
+<p class="byline">By A. Tester</p>
+<p>The needle sits in the middle of this paragraph, where find should land on it. Gardens of raked gravel are meant to be read slowly, one line at a time, the way water moves around a stone.</p>
+<p>Each stone is placed so the eye rests before it moves on. The empty space between them is not empty at all: it is the part of the garden that does the most work, and the part that visitors remember longest.</p>
+<p>Reader view should keep these paragraphs and drop the navigation above. <img src="x.png" onerror="document.body.dataset.xss='1'"> It should also drop anything that tries to run a script.</p>
+<p>A fourth paragraph gives Readability enough text to call this an article. Moss grows at the edges, the rake lines are renewed each morning, and the garden is never quite finished.</p>
+<script>document.body.dataset.ran = "1";</script>
+</article>
+<form><select id="pick"><option>One</option><option>Two</option></select></form>
+<video controls width="64" height="48"></video>
+</body></html>
