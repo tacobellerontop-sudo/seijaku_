@@ -487,6 +487,35 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* The site's icon: small and a touch muted, so the label still leads.
+   Asleep tabs dim it with their label. */
+.tab-icon {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  object-fit: contain;
+  opacity: 0.85;
+}
+.tab-icon[hidden] {
+  display: none;
+}
+.tab[selected] .tab-icon {
+  opacity: 1;
+}
+.tab[asleep] .tab-icon {
+  opacity: 0.45;
+}
+/* While loading, the breathing dot stands in for the icon. */
+.tab[busy] .tab-icon {
+  display: none;
+}
+/* A tab being dragged along the strip lifts slightly. */
+.tab[dragging] {
+  color: var(--fg);
+  background: var(--wash);
+  border-radius: var(--radius);
+  transition: none;
+}
 .tab-speaker {
   display: none;
   flex: none;

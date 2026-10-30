@@ -224,6 +224,7 @@ window.addEventListener("DOMContentLoaded", () => {
   });
   bindBool("setting-update", "seijaku.update.enabled");
   bindBool("setting-autohide", "seijaku.chrome.autohide");
+  bindBool("setting-tab-icons", "seijaku.tabs.icons");
   // Permission switch: one checkbox drives three policy prefs.
   // Checked means "allow at once" (1); unchecked clears them back to
   // the engine's ask-by-default instead of guessing each one's ask
