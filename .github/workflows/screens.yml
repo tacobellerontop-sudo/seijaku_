@@ -61,5 +61,11 @@ jobs:
           Copy-Item "$env:RUNNER_TEMP\screens\*.png" $sha
           git add $sha
           git commit -m "Screenshots for $sha"
-          git push origin screenshots
+          # Runs for other commits may push at the same time.
+          for ($i = 0; $i -lt 5; $i++) {
+            git push origin screenshots
+            if ($LASTEXITCODE -eq 0) { break }
+            git pull --rebase origin screenshots
+          }
+          if ($LASTEXITCODE -ne 0) { throw 'could not push the screenshots' }
           Pop-Location
