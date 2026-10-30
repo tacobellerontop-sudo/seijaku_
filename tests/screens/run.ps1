@@ -37,10 +37,13 @@ New-Item -ItemType Directory -Force $profile | Out-Null
 $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
 Write-Host "Screen: $($bounds.Width)x$($bounds.Height)"
 $engine = Start-Process (Join-Path $App 'firefox.exe') -PassThru `
-    -ArgumentList '-app', "`"$(Join-Path $App 'seijaku\application.ini')`"", '-profile', "`"$profile`"", '-no-remote'
+    -ArgumentList '-app', "`"$(Join-Path $App 'seijaku\application.ini')`"", '-profile', "`"$profile`"", '-no-remote', '-wait-for-browser'
+# Wait on shots.js's own done file, not the process: firefox.exe may
+# hand the window to a child process and exit at once.
 $request = Join-Path $profile 'shot-request.txt'
+$done = Join-Path $profile 'shots-done.txt'
 $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
-while (-not $engine.HasExited -and (Get-Date) -lt $deadline) {
+while (-not (Test-Path $done) -and (Get-Date) -lt $deadline) {
     if (Test-Path $request) {
         Start-Sleep -Milliseconds 300
         $name = (Get-Content -Raw $request).Trim()
@@ -54,10 +57,9 @@ while (-not $engine.HasExited -and (Get-Date) -lt $deadline) {
     }
     Start-Sleep -Milliseconds 150
 }
-if (-not $engine.HasExited) {
-    Stop-Process -Id $engine.Id -Force -ErrorAction SilentlyContinue
-    Write-Host "The browser did not quit within $TimeoutSeconds seconds."
-}
+if (-not (Test-Path $done)) { Write-Host "shots.js did not finish within $TimeoutSeconds seconds." }
+Start-Sleep 2
+Get-Process firefox -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 $err = Join-Path $profile 'shots-error.txt'
 if (Test-Path $err) { Write-Host '--- shots.js error ---'; Get-Content $err }
 Get-ChildItem $Out

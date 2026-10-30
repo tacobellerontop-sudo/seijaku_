@@ -48,6 +48,7 @@ jobs:
       - name: Commit to the screenshots branch
         shell: pwsh
         run: |
+          if (-not (Test-Path "$env:RUNNER_TEMP\screens\*.png")) { throw 'no screenshots were captured' }
           $sha = "${{ github.sha }}".Substring(0, 7)
           $dir = Join-Path $env:RUNNER_TEMP 'shots-branch'
           git config --global user.name "github-actions[bot]"
