@@ -42,6 +42,19 @@ try {
   });
 } catch (e) { /* already registered by another window */ }
 
+// Tab icons: the page's own icon, read in its process once it has
+// loaded (see SeijakuIconChild.sys.mjs). Top-level http(s) pages only.
+try {
+  ChromeUtils.registerWindowActor("SeijakuIcon", {
+    parent: { esModuleURI: "resource://seijaku/SeijakuIconParent.sys.mjs" },
+    child: { esModuleURI: "resource://seijaku/SeijakuIconChild.sys.mjs" },
+    matches: ["http://*/*", "https://*/*"],
+    messageManagerGroups: ["browsers"],
+    // Only reads link elements and returns their resolved address.
+    safeForUntrustedWebProcess: true,
+  });
+} catch (e) { /* already registered by another window */ }
+
 // Site permission prompts (notifications, camera, microphone): see
 // PermissionPrompt.sys.mjs for why these are registered at runtime.
 try {
@@ -55,7 +68,7 @@ const SESSION_FILE = "seijaku-session.json";
 const DATA_FILE = "seijaku-data.json";
 const HISTORY_LIMIT = 1000;
 const MESSAGE_MS = 4000;
-const SEIJAKU_VERSION = "0.2.11";
+const SEIJAKU_VERSION = "0.2.12";
 const UPDATE_REPO = "tacobellerontop-sudo/seijaku_";
 const UPDATE_CHECK_MS = 24 * 60 * 60 * 1000;
 // Session and data writes are batched: a page load reports its
@@ -101,6 +114,14 @@ class Tab {
     this.el.setAttribute("role", "tab");
     this.labelEl = document.createElement("span");
     this.labelEl.className = "tab-label";
+    // The site's icon, when it has one and icons are on (Settings).
+    // Hidden until it loads, and hidden again if it fails to.
+    this.iconEl = document.createElement("img");
+    this.iconEl.className = "tab-icon";
+    this.iconEl.alt = "";
+    this.iconEl.hidden = true;
+    this.iconEl.addEventListener("load", () => (this.iconEl.hidden = false));
+    this.iconEl.addEventListener("error", () => (this.iconEl.hidden = true));
     // No close button on purpose: a tab closes with a double-click
     // (or Ctrl+W, or middle-click). One less control per tab keeps the
     // strip quiet, and the strip is where the eye lives.
@@ -108,9 +129,8 @@ class Tab {
     // muted; clicking it mutes or unmutes the tab (see toggleMute).
     this.speakerEl = document.createElement("span");
     this.speakerEl.className = "tab-speaker";
-    this.speakerEl.textContent = "\u266a";
     this.speakerEl.title = "Mute this tab";
-    this.el.append(this.labelEl, this.speakerEl);
+    this.el.append(this.iconEl, this.labelEl, this.speakerEl);
     this.el.tab = this;
     Object.defineProperty(this.el, "linkedBrowser", { get: () => this.browser });
     this.browser = null;
@@ -123,6 +143,21 @@ class Tab {
     // insecure, or internal for the browser's own pages.
     this.pinned = false;
     this.security = "internal";
+    this.icon = "";
+  }
+
+  /** Shows the icon at this address, or none for "". */
+  setIcon(href) {
+    if (href == this.icon) {
+      return;
+    }
+    this.icon = href;
+    if (href) {
+      this.iconEl.src = href;
+    } else {
+      this.iconEl.removeAttribute("src");
+      this.iconEl.hidden = true;
+    }
   }
 
   get asleep() {
@@ -691,6 +726,12 @@ var Seijaku = {
       }
       if (data == PREF + "tabs.position") {
         this.applyTabsPosition();
+      }
+      if (data == PREF + "tabs.icons" && !this.iconsEnabled()) {
+        for (let tab of this.tabs) {
+          tab.setIcon("");
+        }
+        this.saveSession();
       }
       // The Settings page has no way to call into this window, so it
       // asks for an update by flipping this pref instead.
@@ -1623,11 +1664,12 @@ var Seijaku = {
       return;
     }
     lock.hidden = false;
+    // The glyph is drawn in CSS from the state: a closed lock when
+    // secure, an open one otherwise.
+    lock.setAttribute("state", tab.security);
     if (tab.security == "secure") {
-      lock.textContent = "🔒";
       lock.title = "Connection is secure — click for site information";
     } else {
-      lock.textContent = "⚠";
       lock.title = "Connection is not secure — click for site information";
     }
   },
@@ -1701,6 +1743,145 @@ var Seijaku = {
   // cannot be closed by any means until it is unpinned (closeTab
   // refuses with a message). Pinning survives restart through the
   // saved session.
+
+  // -------------------------------------------------------------- tab icons, reordering, switching
+
+  iconsEnabled() {
+    return !this.isPrivate && this.pref("tabs.icons", true);
+  },
+
+  /** Asks a loaded page for its icon (the SeijakuIcon actor). */
+  async fetchTabIcon(tab) {
+    if (!this.iconsEnabled() || !/^https?:/.test(tab.url)) {
+      return;
+    }
+    let url = tab.url;
+    let answer = null;
+    try {
+      answer = await tab.browser?.browsingContext?.currentWindowGlobal
+        ?.getActor("SeijakuIcon")
+        .sendQuery("GetIcon");
+    } catch (e) {
+      return; // the page went away, or isn't a web page
+    }
+    let href = answer?.href || "";
+    // The tab may have moved on while the page answered.
+    if (tab.url != url || !/^(https?|data):/.test(href)) {
+      return;
+    }
+    tab.setIcon(href);
+    this.saveSession();
+  },
+
+  /** Drag a tab along the strip to move it. Pinned tabs move among
+      pinned tabs only, the rest among the rest. Nothing listens
+      until a tab is pressed, and the listeners go when it is let go. */
+  startTabDrag(tab, down) {
+    let vertical = this._tabsPosition == "left" || this._tabsPosition == "right";
+    let dragging = false;
+    let move = event => {
+      // The button came up somewhere this window never heard about
+      // (over the page): the drag is over.
+      if (!(event.buttons & 1)) {
+        up();
+        return;
+      }
+      if (!dragging) {
+        let dist = vertical ? event.screenY - down.screenY : event.screenX - down.screenX;
+        if (Math.abs(dist) < 6) {
+          return;
+        }
+        dragging = true;
+        tab.el.setAttribute("dragging", "true");
+      }
+      let over = document.elementFromPoint(event.clientX, event.clientY)?.closest(".tab")?.tab;
+      if (!over || over === tab || over.pinned != tab.pinned) {
+        return;
+      }
+      let rect = over.el.getBoundingClientRect();
+      let after = vertical
+        ? event.clientY > rect.top + rect.height / 2
+        : event.clientX > rect.left + rect.width / 2;
+      this.tabs.splice(this.tabs.indexOf(tab), 1);
+      this.tabs.splice(this.tabs.indexOf(over) + (after ? 1 : 0), 0, tab);
+      this.placeTabEl(tab);
+    };
+    let up = () => {
+      window.removeEventListener("mousemove", move, true);
+      window.removeEventListener("mouseup", up, true);
+      if (dragging) {
+        tab.el.removeAttribute("dragging");
+        this.saveSession();
+      }
+    };
+    window.addEventListener("mousemove", move, true);
+    window.addEventListener("mouseup", up, true);
+  },
+
+  /** Ctrl+Tab / Ctrl+Shift+Tab: the next or previous tab, wrapping. */
+  cycleTab(delta) {
+    if (this.tabs.length < 2) {
+      return;
+    }
+    let i = this.tabs.indexOf(this.selected);
+    this.selectTab(this.tabs[(i + delta + this.tabs.length) % this.tabs.length]);
+  },
+
+  /** Ctrl+1–8 pick that tab; Ctrl+9 is always the last one. */
+  selectTabNumber(n) {
+    let tab = n == 9 ? this.tabs[this.tabs.length - 1] : this.tabs[n - 1];
+    if (tab) {
+      this.selectTab(tab);
+    }
+  },
+
+  /** F11: the window fills the screen and the strip steps away. */
+  toggleFullScreen() {
+    window.fullScreen = !window.fullScreen;
+  },
+
+  /** Ctrl+P: the Windows print dialog for this page. Seijaku has no
+      print preview of its own (that is Firefox's front end), so the
+      system dialog is the whole flow: pick a printer, print. */
+  async printPage() {
+    let bc = this.selectedBrowser?.browsingContext;
+    if (!bc) {
+      return;
+    }
+    try {
+      let PSSVC = Cc["@mozilla.org/gfx/printsettings-service;1"].getService(Ci.nsIPrintSettingsService);
+      let settings = PSSVC.createNewPrintSettings();
+      settings.printerName =
+        PSSVC.lastUsedPrinterName ||
+        Cc["@mozilla.org/gfx/printerlist;1"].getService(Ci.nsIPrinterList).systemDefaultPrinterName;
+      try {
+        PSSVC.initPrintSettingsFromPrinter(settings.printerName, settings);
+        PSSVC.initPrintSettingsFromPrefs(settings, true, Ci.nsIPrintSettings.kInitSaveAll);
+      } catch (e) { /* the printer's defaults are enough */ }
+      let dialog = Cc["@mozilla.org/widget/printdialog-service;1"].getService(Ci.nsIPrintDialogService);
+      try {
+        await dialog.showPrintDialog(window, false, settings);
+      } catch (e) {
+        if (e.result == Cr.NS_ERROR_ABORT) {
+          return;
+        }
+        throw e;
+      }
+      PSSVC.maybeSaveLastUsedPrinterNameToPrefs(settings.printerName);
+      PSSVC.maybeSavePrintSettingsToPrefs(settings, Ci.nsIPrintSettings.kPrintDialogPersistSettings);
+      await bc.print(settings);
+    } catch (e) {
+      this.showMessage(`Couldn't print: ${e.message}`, "error");
+    }
+  },
+
+  /** Ctrl+Shift+Del: Settings, scrolled to Clear browsing data. */
+  openClearData() {
+    let tab = this.openPage("settings", "clear-data");
+    try {
+      tab?.browser?.contentDocument?.getElementById("clear-data")?.scrollIntoView({ block: "center" });
+    } catch (e) { /* the page scrolls itself to the anchor when it loads */ }
+  },
 
   togglePinCurrent() {
     let tab = this.selected;
@@ -1776,6 +1957,9 @@ var Seijaku = {
       { title: "Mute current tab", run: () => { if (this.selected) { this.toggleMute(this.selected); } } },
       { title: "Reader view", run: () => this.openReader() },
       { title: "Copy page URL", run: copyUrl },
+      { title: "Print page", run: () => this.printPage() },
+      { title: "Full screen", run: () => this.toggleFullScreen() },
+      { title: "Clear browsing data", run: () => this.openClearData() },
       { title: "Clear history", run: () => { this.clearHistory(); this.showMessage("History cleared"); } },
     ];
   },
@@ -1999,7 +2183,6 @@ var Seijaku = {
       return;
     }
     let marked = !!(this.selected?.url && this.isBookmarked(this.selected.url));
-    star.textContent = marked ? "★" : "☆";
     star.toggleAttribute("bookmarked", marked);
     star.title = marked ? "Remove bookmark (Ctrl+D)" : "Bookmark this page (Ctrl+D)";
   },
@@ -2407,20 +2590,21 @@ var Seijaku = {
     } catch (e) {}
   },
 
-  /** The strip button: plain arrow when idle, first active download's
-      percentage while one runs (plain text, so it still reads if the
-      arrow glyph is unavailable). DOM writes only on a real change,
-      because download-changed callbacks fire very often. */
+  /** The strip button: the arrow alone when idle, the arrow plus the
+      first active download's percentage while one runs. DOM writes
+      only on a real change, because download-changed callbacks fire
+      very often. */
   updateDownloadsButton() {
     let btn = document.getElementById("downloads-button");
     if (!btn) {
       return;
     }
     let active = (this._downloads ?? []).find(e => e.state == "downloading");
-    let label = "↓";
+    // The arrow is drawn in CSS; the label is only the percentage.
+    let label = "";
     let title = "Downloads (Ctrl+J)";
     if (active) {
-      label = `↓ ${active.progress || 0}%`;
+      label = `${active.progress || 0}%`;
       title = `Downloading: ${active.progress || 0}% — Downloads (Ctrl+J)`;
     }
     if (btn.textContent != label) {
@@ -2818,10 +3002,9 @@ var Seijaku = {
       return;
     }
     let loading = !!this.selected?.el.hasAttribute("busy");
-    // Material Icons codepoints (Google's codepoints list):
-    // E047 stop, E5D5 refresh. Same font as the nav buttons in CSS,
-    // so the stop/reload swap renders instantly too.
-    button.textContent = loading ? "\uE047" : "\uE5D5";
+    // The reload and stop glyphs are both drawn in CSS, so the swap
+    // is one attribute and renders instantly.
+    button.toggleAttribute("loading", loading);
     button.title = loading ? "Stop loading (click)" : "Reload (Ctrl+R)";
   },
 
@@ -2966,6 +3149,7 @@ var Seijaku = {
           if (tab === Seijaku.selected) {
             Seijaku.updateNavButtons();
           }
+          Seijaku.fetchTabIcon(tab);
           Seijaku.saveSession();
         }
       },
@@ -2973,8 +3157,21 @@ var Seijaku = {
         if (!webProgress.isTopLevel) {
           return;
         }
+        // A different site's icon would be wrong here; the new page
+        // reports its own once it is shown.
+        let oldHost = "";
+        try {
+          oldHost = Services.io.newURI(tab.url).host;
+        } catch (e) { /* no host before */ }
         tab.url = displayURL(location.spec);
         tab.title = b.contentTitle || "";
+        let newHost = "";
+        try {
+          newHost = location.host;
+        } catch (e) { /* internal pages have no host */ }
+        if (!newHost || newHost != oldHost) {
+          tab.setIcon("");
+        }
         // A new address resets the security mark (failing safe: a
         // fresh web address reads insecure until the security event
         // below says otherwise); the browser's own pages are neutral.
@@ -2993,6 +3190,11 @@ var Seijaku = {
       onStatusChange() {},
       onSecurityChange(webProgress, request, state) {
         if (!webProgress.isTopLevel) {
+          return;
+        }
+        // The browser's own pages stay neutral: the engine reports
+        // them as not secure, which put a warning mark on Home.
+        if (tab.security == "internal") {
           return;
         }
         try {
@@ -3440,7 +3642,7 @@ var Seijaku = {
   sessionData() {
     return {
       selected: this.tabs.indexOf(this.selected),
-      tabs: this.tabs.map(t => ({ url: t.url, title: t.title, pinned: !!t.pinned })),
+      tabs: this.tabs.map(t => ({ url: t.url, title: t.title, pinned: !!t.pinned, icon: t.icon || undefined })),
     };
   },
 
@@ -3487,7 +3689,10 @@ var Seijaku = {
           return false;
         }
         for (let t of tabs) {
-          this.openTab(t.url, { asleep: true, title: t.title, background: true, pinned: !!t.pinned });
+          let tab = this.openTab(t.url, { asleep: true, title: t.title, background: true, pinned: !!t.pinned });
+          if (t.icon && this.iconsEnabled()) {
+            tab.setIcon(t.icon);
+          }
         }
         // Restored pinned tabs sit first, the way they were saved.
         this.orderTabs();
@@ -4143,6 +4348,7 @@ var Seijaku = {
         if (tab && event.button == 0) {
           this.selectTab(tab);
           event.preventDefault();
+          this.startTabDrag(tab, event);
         }
         break;
       }
@@ -4245,6 +4451,13 @@ var Keys = {
     ["h", "accel", () => Seijaku.openPage("history")],
     ["j", "accel", () => Seijaku.openPage("downloads")],
     ["b", "accel,shift", () => Seijaku.openPage("bookmarks")],
+    ["VK_TAB", "control", () => Seijaku.cycleTab(1)],
+    ["VK_TAB", "control,shift", () => Seijaku.cycleTab(-1)],
+    ...[1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => [String(n), "accel", () => Seijaku.selectTabNumber(n)]),
+    ["VK_F5", "", () => Seijaku.selectedBrowser?.reload()],
+    ["VK_F11", "", () => Seijaku.toggleFullScreen()],
+    ["p", "accel", () => Seijaku.printPage()],
+    ["VK_DELETE", "accel,shift", () => Seijaku.openClearData()],
     ["VK_LEFT", "alt", () => Seijaku.selectedBrowser?.goBack()],
     ["VK_RIGHT", "alt", () => Seijaku.selectedBrowser?.goForward()],
     [",", "accel", () => Seijaku.openPage("settings")],

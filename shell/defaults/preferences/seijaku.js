@@ -19,6 +19,7 @@ pref("seijaku.weather.enabled", true);         // the home page's weather widget
 pref("seijaku.weather.city", "Singapore");     // geocoded once, then stored as lat/lon below
 pref("seijaku.weather.lat", "");               // filled on first weather fetch
 pref("seijaku.weather.lon", "");
+pref("seijaku.tabs.icons", true);         // site icons in tabs (Settings); private windows never show them
 pref("seijaku.chrome.autohide", false);   // hide the strip, keep only the reveal strip at the placement edge (Settings)
 pref("seijaku.download.folder", "");   // custom download folder (Settings); empty means the system Downloads folder
 pref("seijaku.download.ask", false);   // ask where to save each file (Settings)

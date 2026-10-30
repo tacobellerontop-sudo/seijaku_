@@ -96,6 +96,40 @@
       return "Select, Finder, UAWidgets, AudioPlayback, SeijakuReader";
     });
 
+    await check("a page's icon reaches its tab", async () => {
+      try {
+        await waitFor("the tab icon", () => tab.icon == BASE + "icon.svg" && !tab.iconEl.hidden);
+      } catch (e) {
+        let actor = "ok";
+        try {
+          tab.browser.browsingContext.currentWindowGlobal.getActor("SeijakuIcon");
+        } catch (err) {
+          actor = String(err?.message || err);
+        }
+        throw new Error(
+          `${e.message} (icon=${tab.icon || "none"}, hidden=${tab.iconEl.hidden}, ` +
+          `complete=${tab.iconEl.complete}, width=${tab.iconEl.naturalWidth}, actor=${actor})`
+        );
+      }
+      return tab.icon;
+    });
+
+    await check("tab switching: Ctrl+Tab, Ctrl+number, drag order", async () => {
+      Seijaku.selectTab(tab);
+      let i = Seijaku.tabs.indexOf(tab);
+      Seijaku.cycleTab(1);
+      assert(Seijaku.selected === Seijaku.tabs[(i + 1) % Seijaku.tabs.length], "Ctrl+Tab went elsewhere");
+      Seijaku.cycleTab(-1);
+      assert(Seijaku.selected === tab, "Ctrl+Shift+Tab did not come back");
+      Seijaku.selectTabNumber(9);
+      assert(Seijaku.selected === Seijaku.tabs[Seijaku.tabs.length - 1], "Ctrl+9 is not the last tab");
+      Seijaku.selectTabNumber(1);
+      assert(Seijaku.selected === Seijaku.tabs[0], "Ctrl+1 is not the first tab");
+      Seijaku.selectTab(tab);
+      let order = [...Seijaku.$tabbar.querySelectorAll(".tab")].map(el => el.tab);
+      assert(order.every((t, n) => t === Seijaku.tabs[n]), "strip order differs from the tab list");
+    });
+
     await check("find locates text on a web page", async () => {
       document.getElementById("find-input").value = "needle";
       let data = await finderResult(tab.browser, () => Seijaku.findInPage());

@@ -41,8 +41,19 @@ h2 {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 10px 0;
+  padding: 10px 10px;
+  margin-inline: -10px;
   border-bottom: 1px solid var(--line);
+  border-radius: 6px;
+  transition: background-color 0.12s ease;
+}
+
+.row:hover {
+  background: color-mix(in srgb, var(--fg) 5%, transparent);
+}
+
+.row:hover .row-title {
+  color: var(--accent);
 }
 
 .row-main {
@@ -58,9 +69,14 @@ h2 {
   white-space: nowrap;
 }
 
+.row-title {
+  transition: color 0.12s ease;
+}
+
 .row-url {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 11px;
+  margin-top: 1px;
 }
 
 .row-meta {

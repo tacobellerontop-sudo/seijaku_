@@ -17,7 +17,7 @@ $content = Join-Path $App 'seijaku\chrome\content'
 # The test script runs inside the window, after the shell's own.
 Copy-Item (Join-Path $PSScriptRoot 'smoketest.js') $content
 $xhtml = Join-Path $content 'seijaku.xhtml'
-$text = Get-Content -Raw $xhtml
+$text = Get-Content -Raw -Encoding UTF8 $xhtml
 $tag = '<script src="chrome://seijaku/content/seijaku.js"></script>'
 if (-not $text.Contains($tag)) { throw "seijaku.xhtml has no seijaku.js script tag" }
 $text = $text.Replace($tag, $tag + "`n  <script src=`"chrome://seijaku/content/smoketest.js`"></script>")

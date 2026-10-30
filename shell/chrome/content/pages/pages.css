@@ -30,21 +30,72 @@ button {
   color: var(--fg);
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 0;
-  padding: 4px 6px;
+  border-radius: 6px;
+  padding: 6px 10px;
+  transition: border-color 0.12s ease, background-color 0.12s ease;
+}
+input:not([type="checkbox"]):not([type="color"]),
+select {
+  background: color-mix(in srgb, var(--fg) 3%, var(--panel));
+}
+input::placeholder {
+  color: var(--muted);
+  font-family: "Yu Mincho", "MS Mincho", serif;
+  font-style: italic;
 }
 input:focus,
 select:focus,
 button:focus-visible {
-  outline: 1px solid var(--accent);
-  outline-offset: 0;
+  outline: none;
   border-color: var(--accent);
+}
+input[type="checkbox"] {
+  accent-color: var(--accent);
 }
 button {
   cursor: pointer;
 }
 button:hover {
-  border-color: var(--muted);
+  background: color-mix(in srgb, var(--fg) 8%, var(--panel));
+}
+
+/* Page titles: the serif word, lower case, with a short vermilion
+   stroke under it — the strip's selected-tab mark, reused. The home
+   page's greeting is an h1 too, and keeps its own look. */
+h1:not(#greeting) {
+  position: relative;
+  padding-bottom: 14px;
+  margin-bottom: 14px !important;
+  letter-spacing: 0.04em;
+}
+h1:not(#greeting)::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 24px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+/* Section titles: the same serif, with a hairline running to the
+   right edge, so a long page reads as calm, separate rooms. */
+h2 {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  letter-spacing: 0.04em;
+}
+h2::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
 .muted {
@@ -65,15 +116,18 @@ button:hover {
 }
 
 .dd-list {
+  margin-top: 4px;
   border: 1px solid var(--line);
-  border-top: none;
+  border-radius: 6px;
+  padding: 4px;
   background: var(--panel);
   max-height: 240px;
   overflow-y: auto;
 }
 
 .dd-option {
-  padding: 4px 6px;
+  padding: 5px 8px;
+  border-radius: 4px;
   cursor: pointer;
 }
 

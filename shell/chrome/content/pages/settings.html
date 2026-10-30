@@ -107,7 +107,7 @@
         <option value="off">Off — no tracking protection</option>
       </select>
     </label>
-    <div class="field">
+    <div class="field" id="clear-data">
       Clear browsing data
       <p class="muted">Clearing cookies signs you out of sites. Files you downloaded stay where they are.</p>
       <p>
@@ -161,6 +161,11 @@
       <span class="muted">Off by default. When on, any site that asks gets access at once, with no prompt and no device choice. Location is always denied — Seijaku never asks for it.</span>
     </label>
     <label>
+      <input id="setting-tab-icons" type="checkbox" />
+      Show site icons in tabs
+      <span class="muted">Each site's own small icon, beside its tab's name. Private windows never show them.</span>
+    </label>
+    <label>
       <input id="setting-autohide" type="checkbox" />
       Auto-hide the strip — only the red line stays at its edge
       <span class="muted">Move the mouse to the strip's edge (the red line) to bring it back; moving onto the page hides it again. Ctrl+Shift+H flips this setting.</span>
@@ -176,7 +181,10 @@
       <li>Ctrl+T — new tab, with the floating bar open</li>
       <li>Ctrl+L — floating bar for this tab</li>
       <li>Ctrl+K — command palette (commands, tabs, bookmarks)</li>
-      <li>Ctrl+W — close tab</li>
+      <li>Ctrl+W — close tab (or double-click it)</li>
+      <li>Ctrl+Tab / Ctrl+Shift+Tab — next, previous tab</li>
+      <li>Ctrl+1 … Ctrl+8 — that tab; Ctrl+9 — the last tab</li>
+      <li>Drag a tab — move it along the strip</li>
       <li>Ctrl+Shift+T — reopen closed tab</li>
       <li>Ctrl+Shift+N — private window</li>
       <li>Ctrl+Shift+S — sleep this tab now</li>
@@ -188,7 +196,10 @@
       <li>Ctrl+J — downloads</li>
       <li>Ctrl+F — find in page</li>
       <li>Ctrl+= / Ctrl+− / Ctrl+0 — zoom in, out, reset</li>
-      <li>Ctrl+R — reload</li>
+      <li>Ctrl+R or F5 — reload</li>
+      <li>Ctrl+P — print</li>
+      <li>F11 — full screen</li>
+      <li>Ctrl+Shift+Delete — clear browsing data</li>
       <li>Alt+Left / Alt+Right — back, forward</li>
       <li>Ctrl+, — settings</li>
     </ul>

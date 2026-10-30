@@ -1,22 +1,15 @@
 /* Seijaku window. Ma: empty space. Kanso: one thing per row, lines
    instead of boxes. One accent only: vermilion, for the seal, the
-   selected tab's underline, and the cursor. Colours come from the theme
-   setting (ink dark by default, paper light); seijaku.js sets them.
-   Type is Japanese-first: Yu Gothic for the interface, Yu Mincho serif
-   for the seal and other kanji, the way Ryoku pairs Japanese type with
-   Latin. Warm ink, not cold blue-grey.
+   selected tab's underline, the loading line and the cursor. Colours
+   come from the theme setting (ink dark by default, paper light);
+   seijaku.js sets them. Type is Japanese-first: Yu Gothic for the
+   interface, Yu Mincho serif for the seal and other kanji, the way
+   Ryoku pairs Japanese type with Latin. Warm ink, not cold blue-grey.
    There is no persistent address bar: the strip below is the whole
-   chrome, and a floating panel (Ctrl+T / Ctrl+L) is the address bar. */
-
-/* Bundled Material Icons, subset to the four nav glyphs only (612 bytes).
-   Shipped inside the shell, so the nav glyphs render offline with no
-   network fetch. chrome://seijaku/content/ maps to chrome/content/ (see
-   chrome.manifest), and package.ps1 copies the whole shell dir, so this
-   file ships in both installer and portable builds. */
-@font-face {
-  font-family: "Material Icons";
-  src: url("chrome://seijaku/content/fonts/material-icons.woff2") format("woff2");
-}
+   chrome, and a floating panel (Ctrl+T / Ctrl+L) is the address bar.
+   Every glyph on the strip is one thin line icon from the set below,
+   so they all share one weight; hover is a faint wash of the text
+   colour, never a new colour. */
 
 :root {
   --font: "Yu Gothic UI", "Yu Gothic", "Meiryo", sans-serif;
@@ -29,14 +22,26 @@
   --muted: #9a9082;
   --line: #2e2620;
   --error: #e07b7b;
-  /* The strip: one row tall across the top, 200px wide down a side. */
-  --strip-width: 200px;
-  --message-height: 20px;
+  /* Derived from the theme, so every theme gets them for free. */
+  --wash: color-mix(in srgb, var(--fg) 8%, transparent);
+  --wash-strong: color-mix(in srgb, var(--fg) 14%, transparent);
+  --accent-wash: color-mix(in srgb, var(--accent) 16%, transparent);
+  --radius: 6px;
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+  /* The strip: one row tall across the top, 208px wide down a side. */
+  --strip-height: 36px;
+  --strip-width: 208px;
+  --message-height: 24px;
 
   height: 100%;
   background: var(--bar-bg);
   color: var(--fg);
   font: var(--font-size) var(--font);
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent) 35%, transparent);
+  color: inherit;
 }
 
 body {
@@ -51,15 +56,75 @@ body {
   flex-direction: row;
 }
 
+/* ---- The icon set: one thin, round-capped line per glyph on a 24px
+   grid, drawn as a mask so it takes the button's colour. Inline SVG,
+   so nothing is fetched and nothing depends on a system font. ---- */
+.nav-button::before,
+.tab-speaker::before {
+  content: "";
+  flex: none;
+  width: 16px;
+  height: 16px;
+  background: currentColor;
+  mask: var(--icon) center / 16px 16px no-repeat;
+}
+#nav-back {
+  --icon: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><path d='M19 12H5M11 5.5 4.5 12l6.5 6.5'/></svg>");
+}
+#nav-forward {
+  --icon: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><path d='M5 12h14M13 5.5l6.5 6.5-6.5 6.5'/></svg>");
+}
+#nav-reload {
+  --icon: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><path d='M19.5 12a7.5 7.5 0 1 1-2.2-5.3L19.5 9'/><path d='M19.5 4.5V9H15'/></svg>");
+}
+#nav-reload[loading] {
+  --icon: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><path d='M6.5 6.5l11 11M17.5 6.5l-11 11'/></svg>");
+}
+#tab-new {
+  --icon: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><path d='M12 5v14M5 12h14'/></svg>");
+}
+#tab-undo {
+  --icon: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><path d='M9 14 4.5 9.5 9 5'/><path d='M4.5 9.5H14a5.5 5.5 0 0 1 0 11h-3'/></svg>");
+}
+#bookmark-star {
+  --icon: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.6' stroke-linejoin='round'><path d='M12 4l2.4 5 5.4.7-4 3.8 1 5.4L12 16.3 7.2 18.9l1-5.4-4-3.8 5.4-.7z'/></svg>");
+}
+#bookmark-star[bookmarked] {
+  --icon: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='black' stroke='black' stroke-width='1.6' stroke-linejoin='round'><path d='M12 4l2.4 5 5.4.7-4 3.8 1 5.4L12 16.3 7.2 18.9l1-5.4-4-3.8 5.4-.7z'/></svg>");
+}
+#downloads-button {
+  --icon: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><path d='M12 4.5v10M7.5 10.5l4.5 4.5 4.5-4.5M5.5 19.5h13'/></svg>");
+}
+#sec-lock {
+  --icon: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'><rect x='5.5' y='10.5' width='13' height='9' rx='2'/><path d='M8.5 10.5V8a3.5 3.5 0 0 1 6.8-1.2'/></svg>");
+}
+#sec-lock[state="secure"] {
+  --icon: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'><rect x='5.5' y='10.5' width='13' height='9' rx='2'/><path d='M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5'/></svg>");
+}
+#perm-lock {
+  --icon: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round'><path d='M4.5 8h8M18.5 8h1M4.5 16h1M11.5 16h8'/><circle cx='15.5' cy='8' r='2.3'/><circle cx='8.5' cy='16' r='2.3'/></svg>");
+}
+#strip-menu {
+  --icon: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='black'><circle cx='6' cy='12' r='1.5'/><circle cx='12' cy='12' r='1.5'/><circle cx='18' cy='12' r='1.5'/></svg>");
+}
+.tab-speaker {
+  --icon: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><path d='M4.5 9.5v5h3.5l4.5 4v-13l-4.5 4z'/><path d='M16 9a4 4 0 0 1 0 6M18.5 6.5a7.5 7.5 0 0 1 0 11'/></svg>");
+}
+.tab[muted] .tab-speaker {
+  --icon: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><path d='M4.5 9.5v5h3.5l4.5 4v-13l-4.5 4z'/><path d='M16 9.5l5 5M21 9.5l-5 5'/></svg>");
+}
+
 /* ---- The strip: seal, nav, tabs, actions, drag space, window
    buttons. One row across the top by default; a column down the
    side for left/right. The strip itself is the title bar (there is
    no separate title row any more), so its background is draggable
    and every control on it opts out. ---- */
 #strip {
+  position: relative;
   flex: none;
   display: flex;
   align-items: stretch;
+  min-height: var(--strip-height);
   background: var(--bar-bg);
   border-bottom: 1px solid var(--line);
   user-select: none;
@@ -87,40 +152,89 @@ body {
 :root[sizemode="fullscreen"] #strip {
   display: none;
 }
+/* The loading line: while the selected tab loads, a short vermilion
+   stroke drifts along the strip's page edge. Transform only, so it
+   never reflows the strip, and it costs nothing when idle. */
+#strip::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: -1px;
+  width: 22%;
+  height: 1px;
+  background: var(--accent);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+#strip:has(.tab[selected][busy])::after {
+  opacity: 1;
+  animation: seijaku-drift 1.4s var(--ease) infinite;
+}
+:root[tabs-position="bottom"] #strip::after {
+  bottom: auto;
+  top: -1px;
+}
+:root[tabs-position="left"] #strip::after,
+:root[tabs-position="right"] #strip::after {
+  display: none;
+}
+@keyframes seijaku-drift {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(460%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  #strip:has(.tab[selected][busy])::after {
+    animation: none;
+    width: 100%;
+    opacity: 0.6;
+  }
+}
 #seal {
   flex: none;
   display: flex;
   align-items: center;
-  padding-inline: 8px 2px;
+  justify-content: center;
+  width: 36px;
   font-family: var(--serif);
-  font-size: 12px;
+  font-size: 15px;
   color: var(--accent);
 }
 :root[tabs-position="left"] #seal,
 :root[tabs-position="right"] #seal {
-  padding: 8px 8px 2px;
+  justify-content: flex-start;
+  width: auto;
+  height: var(--strip-height);
+  padding-inline: 14px;
 }
-#nav-buttons {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  -moz-window-dragging: no-drag;
-}
+#nav-buttons,
 #strip-actions {
   flex: none;
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 1px;
   -moz-window-dragging: no-drag;
 }
+#nav-buttons {
+  padding-inline-end: 6px;
+}
+:root[tabs-position="left"] #nav-buttons,
+:root[tabs-position="right"] #nav-buttons {
+  padding: 0 8px 8px;
+}
+#strip-actions {
+  padding-inline: 6px 4px;
+}
 /* Horizontal strips: the tab bar takes all free space, so the actions
-   sit at the right edge no matter how few tabs are open. (Before, the
-   drag space after the actions ate it, and the actions drifted toward
-   the middle.) The tab bar itself is the drag area, so nothing is
-   lost. Side strips keep actions at the bottom via margin-top: auto
-   below, unchanged. A flexing tab bar also fixes the many-tabs case:
-   it now shrinks instead of pushing the actions off the right edge. */
+   sit at the right edge no matter how few tabs are open. The tab bar
+   itself is the drag area, so nothing is lost. Side strips keep
+   actions at the bottom via margin-top: auto below. A flexing tab bar
+   also fixes the many-tabs case: it shrinks instead of pushing the
+   actions off the right edge. */
 :root:not([tabs-position="left"]):not([tabs-position="right"]) #tabbar {
   flex: 1 1 auto;
   min-width: 0;
@@ -128,17 +242,13 @@ body {
 :root:not([tabs-position="left"]):not([tabs-position="right"]) #strip-drag {
   flex: none;
 }
-/* The downloads button shows the first active download's percentage
-   (plain text, so it still reads if the arrow glyph is unavailable). */
-#downloads-button.downloading {
-  color: var(--accent);
-}
 :root[tabs-position="left"] #strip-actions,
 :root[tabs-position="right"] #strip-actions {
-  /* Actions sit at the bottom of a side strip. */
+  /* Actions sit at the bottom of a side strip, above a hairline. */
   margin-top: auto;
   flex-wrap: wrap;
-  padding: 4px 6px;
+  padding: 6px 8px;
+  border-top: 1px solid var(--line);
 }
 #strip-drag {
   flex: 1;
@@ -154,7 +264,10 @@ body {
   color: var(--accent);
   font-family: var(--serif);
   font-style: italic;
-  padding-inline: 8px;
+  padding: 2px 8px;
+  margin-inline: 4px;
+  border: 1px solid var(--accent-wash);
+  border-radius: var(--radius);
 }
 #private-badge[hidden] {
   display: none;
@@ -169,21 +282,28 @@ body {
 :root[tabs-position="left"] #titlebar-buttons,
 :root[tabs-position="right"] #titlebar-buttons {
   justify-content: flex-end;
-  padding-bottom: 2px;
+  height: 32px;
 }
 .titlebar-button {
   appearance: none;
   border: none;
   border-radius: 0;
   margin: 0;
-  padding: 0 12px;
+  padding: 0;
+  width: 46px;
   background: transparent;
-  color: var(--fg);
+  color: var(--muted);
   font: 10px "Segoe Fluent Icons", "Segoe MDL2 Assets";
   -moz-window-dragging: no-drag;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+:root[tabs-position="left"] .titlebar-button,
+:root[tabs-position="right"] .titlebar-button {
+  width: 40px;
 }
 .titlebar-button:hover {
-  background: color-mix(in srgb, var(--fg) 15%, transparent);
+  background: var(--wash);
+  color: var(--fg);
 }
 #titlebar-close:hover {
   background: #c42b1c;
@@ -219,13 +339,14 @@ body {
 }
 
 /* ---- Tabs: words, not boxes. The selected tab gets one vermilion
-   underline and nothing else. Horizontal: tabs fit their names and
-   truncate at 240px. Vertical: tabs stack, full width, and the
-   selected one gets a vermilion edge instead. ---- */
+   underline and nothing else; hover is a faint wash. Horizontal: tabs
+   fit their names and truncate at 220px. Vertical: tabs stack, full
+   width, and the selected one gets a vermilion edge instead. ---- */
 #tabbar {
   display: flex;
   flex: none;
   align-items: stretch;
+  gap: 2px;
   overflow: hidden;
   user-select: none;
   -moz-window-dragging: drag;
@@ -234,44 +355,92 @@ body {
 :root[tabs-position="right"] #tabbar {
   flex: 1 1 auto;
   flex-direction: column;
+  gap: 1px;
   overflow-x: hidden;
   overflow-y: auto;
   min-height: 0;
+  padding: 0 8px 8px;
 }
 .tab {
+  position: relative;
   flex: 0 1 auto;
   min-width: 0;
-  max-width: 240px;
+  max-width: 220px;
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding-inline: 8px 4px;
+  gap: 6px;
+  padding-inline: 12px;
   white-space: nowrap;
   cursor: default;
   color: var(--muted);
-  border-bottom: 2px solid transparent;
   -moz-window-dragging: no-drag;
-  /* GPU-cheap animation, on purpose: only colour and the underline
-     move, never layout. Nothing here reflows the strip. */
-  transition: color 0.15s ease, border-color 0.15s ease;
+  /* GPU-cheap animation, on purpose: only colour, background and the
+     underline's transform move, never layout. */
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+.tab:hover {
+  color: var(--fg);
+}
+/* The underline: drawn, not a border, so it can grow from the centre
+   when a tab is picked and sit a little in from the tab's edges. */
+.tab::after {
+  content: "";
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 0;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--accent);
+  transform: scaleX(0);
+  transition: transform 0.22s var(--ease);
+}
+.tab[selected] {
+  color: var(--tab-selected-fg);
+}
+.tab[selected]::after {
+  transform: scaleX(1);
+}
+:root[tabs-position="bottom"] .tab::after {
+  bottom: auto;
+  top: 0;
+  border-radius: 0 0 2px 2px;
 }
 :root[tabs-position="left"] .tab,
 :root[tabs-position="right"] .tab {
   max-width: none;
   width: 100%;
   box-sizing: border-box;
-  border-bottom: none;
-  border-left: 2px solid transparent;
-  padding-block: 5px;
+  padding: 7px 10px;
+  border-radius: var(--radius);
 }
-.tab[selected] {
-  color: var(--tab-selected-fg);
-  border-bottom-color: var(--accent);
+:root[tabs-position="left"] .tab:hover,
+:root[tabs-position="right"] .tab:hover {
+  background: var(--wash);
 }
 :root[tabs-position="left"] .tab[selected],
 :root[tabs-position="right"] .tab[selected] {
-  border-bottom-color: transparent;
-  border-left-color: var(--accent);
+  background: var(--wash);
+}
+:root[tabs-position="left"] .tab::after,
+:root[tabs-position="right"] .tab::after {
+  left: 0;
+  right: auto;
+  top: 8px;
+  bottom: 8px;
+  width: 2px;
+  height: auto;
+  border-radius: 0 2px 2px 0;
+  transform: scaleY(0);
+}
+:root[tabs-position="right"] .tab::after {
+  left: auto;
+  right: 0;
+  border-radius: 2px 0 0 2px;
+}
+:root[tabs-position="left"] .tab[selected]::after,
+:root[tabs-position="right"] .tab[selected]::after {
+  transform: scaleY(1);
 }
 .tab[asleep] {
   font-style: italic;
@@ -279,24 +448,24 @@ body {
 .tab[asleep] .tab-label {
   opacity: 0.6;
 }
-/* Loading: the label dims and a vermilion dot pulses at the tab's
-   edge. It clears on every finish — success or error — because the
-   progress listener removes "busy" on STATE_STOP either way. */
+/* Loading: the label dims and a small vermilion dot breathes at the
+   tab's edge. It clears on every finish — success or error — because
+   the progress listener removes "busy" on STATE_STOP either way. */
 .tab[busy] .tab-label {
-  opacity: 0.55;
+  opacity: 0.6;
 }
 .tab[busy]::before {
   content: "";
   flex: none;
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
   border-radius: 50%;
   background: var(--accent);
-  animation: seijaku-pulse 1s ease-in-out infinite;
+  animation: seijaku-pulse 1.2s ease-in-out infinite;
 }
 @keyframes seijaku-pulse {
   50% {
-    opacity: 0.25;
+    opacity: 0.2;
   }
 }
 /* Pinned: a vermilion dot, and a heavily truncated title on a
@@ -305,8 +474,8 @@ body {
 .tab[pinned]::before {
   content: "";
   flex: none;
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
   border-radius: 50%;
   background: var(--accent);
 }
@@ -318,110 +487,129 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* The site's icon: small and a touch muted, so the label still leads.
+   Asleep tabs dim it with their label. */
+.tab-icon {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  object-fit: contain;
+  opacity: 0.85;
+}
+.tab-icon[hidden] {
+  display: none;
+}
+.tab[selected] .tab-icon {
+  opacity: 1;
+}
+.tab[asleep] .tab-icon {
+  opacity: 0.45;
+}
+/* While loading, the breathing dot stands in for the icon. */
+.tab[busy] .tab-icon {
+  display: none;
+}
+/* A tab being dragged along the strip lifts slightly. */
+.tab[dragging] {
+  color: var(--fg);
+  background: var(--wash);
+  border-radius: var(--radius);
+  transition: none;
+}
 .tab-speaker {
   display: none;
   flex: none;
-  font-size: 11px;
   cursor: pointer;
+  color: var(--muted);
+}
+.tab-speaker:hover {
+  color: var(--fg);
+}
+.tab-speaker::before {
+  display: block;
+  width: 14px;
+  height: 14px;
+  mask-size: 14px 14px;
 }
 .tab[sound] .tab-speaker,
 .tab[muted] .tab-speaker {
-  display: inline;
+  display: block;
 }
 .tab[muted] .tab-speaker {
-  opacity: 0.4;
+  opacity: 0.6;
 }
-.tab-new {
+
+/* ---- Strip buttons: a 28px square, the glyph centred, a faint wash
+   on hover. ---- */
+.nav-button,
+.ext-button {
   appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  box-sizing: border-box;
+  min-width: 28px;
+  height: 28px;
+  padding: 0;
   border: none;
+  border-radius: var(--radius);
   background: transparent;
   color: var(--muted);
   font: inherit;
-  font-size: 15px;
   line-height: 1;
-  padding: 0 8px;
   cursor: pointer;
   -moz-window-dragging: no-drag;
+  transition: color 0.12s ease, background-color 0.12s ease;
 }
-.tab-new:hover {
+.nav-button:hover:not(:disabled),
+.ext-button:hover {
   color: var(--fg);
+  background: var(--wash);
 }
-.nav-button {
-  appearance: none;
-  border: none;
-  background: transparent;
-  color: var(--muted);
-  font: inherit;
-  /* The remaining symbols (star, downloads arrow, lock, menu) render
-     in Segoe UI Symbol, which draws them properly on Windows,
-     falling back to the UI font anywhere else. The nav buttons use
-     bundled Material Icons instead (see the #nav-back rule below). */
-  font-family: "Segoe UI Symbol", "Yu Gothic UI", "Yu Gothic", sans-serif;
-  font-size: 14px;
-  line-height: 1;
-  width: 24px;
-  height: 24px;
-  cursor: pointer;
-  -moz-window-dragging: no-drag;
-  transition: color 0.15s ease;
-}
-/* Nav glyphs come from bundled Material Icons: bold filled shapes that
-   match the reference toolbar icons, drawn from a file inside the
-   shell, so they render instantly with no fallback flash or late
-   pop-in. Scoped to the nav buttons only — the star, downloads, and
-   lock buttons keep Segoe UI Symbol. Material glyphs are drawn on a
-   24px grid; 20px inside the unchanged 24px button boxes matches the
-   reference's visual weight with a small margin. Button boxes,
-   colours, hover, and disabled styling are unchanged. */
-#nav-back,
-#nav-forward,
-#nav-reload {
-  font-family: "Material Icons";
-  font-size: 20px;
-}
-.nav-button:hover:not(:disabled) {
-  color: var(--fg);
+.nav-button:active:not(:disabled),
+.ext-button:active {
+  background: var(--wash-strong);
 }
 .nav-button:disabled {
-  opacity: 0.35;
+  opacity: 0.3;
+  cursor: default;
 }
-#bookmark-star[bookmarked] {
+#bookmark-star[bookmarked],
+#perm-lock {
   color: var(--accent);
+}
+/* The downloads button shows the first active download's percentage
+   beside the arrow while one runs. */
+#downloads-button.downloading {
+  color: var(--accent);
+  padding-inline: 6px 8px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
 }
 #perm-lock[hidden] {
   display: none;
 }
-#perm-lock {
-  color: var(--accent);
-}
-/* Connection security: same shape as the permission lock, a
-   different meaning — secure is the lock, anything else on the web
-   is the warning mark, and internal pages show nothing at all. */
+/* Connection security: same shape as the permission button, a
+   different meaning — secure is the closed lock, anything else on the
+   web is the open lock, in the accent, and internal pages show
+   nothing at all. */
 #sec-lock[hidden] {
   display: none;
+}
+#sec-lock:not([state="secure"]) {
+  color: var(--accent);
 }
 #ext-buttons {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 1px;
 }
 #ext-buttons:empty {
   display: none;
 }
 .ext-button {
-  appearance: none;
-  border: none;
-  background: transparent;
-  padding: 0 3px;
-  cursor: pointer;
-  color: var(--muted);
-  font: inherit;
   font-size: 13px;
-  line-height: 1;
-  -moz-window-dragging: no-drag;
-}
-.ext-button:hover {
-  color: var(--fg);
 }
 .ext-button img {
   width: 16px;
@@ -558,12 +746,32 @@ body {
   height: var(--message-height);
   display: flex;
   align-items: center;
-  padding-inline: 8px;
+  gap: 8px;
+  padding-inline: 12px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
   white-space: nowrap;
   overflow: hidden;
 }
+/* A short vermilion tick ahead of each message: the one mark that
+   says "the browser is speaking". */
+#message::before {
+  content: "";
+  flex: none;
+  width: 8px;
+  height: 1px;
+  background: var(--accent);
+}
 #message[hidden] {
   display: none;
+}
+#message[level="error"] {
+  background: var(--error);
+  border-top-color: var(--error);
+  color: #fff;
+}
+#message[level="error"]::before {
+  background: #fff;
 }
 
 /* ---- Find bar: one quiet line under the page, only while finding ---- */
@@ -572,7 +780,8 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding-inline: 8px;
+  padding-inline: 12px;
+  border-top: 1px solid var(--line);
 }
 #findbar[hidden] {
   display: none;
@@ -586,50 +795,74 @@ body {
   color: var(--fg);
   font: inherit;
   padding: 0;
-}
-#find-input::placeholder {
-  color: var(--muted);
-  font-family: var(--serif);
-  font-style: italic;
-}
-#message[level="error"] {
-  background: var(--error);
-  color: #fff;
+  caret-color: var(--accent);
 }
 
 /* ---- Floating panels: XUL panels, so they render above page
-   content. A plain div did not reliably do that. ---- */
+   content (a plain div did not reliably do that). They take their
+   look from the engine's panel variables: the theme's background, a
+   hairline, small round corners and one soft shadow, so they float
+   over the page instead of sitting on it. ---- */
 #urlbar-panel,
-#perm-panel {
-  padding: 0;
-  background: var(--bar-bg);
+#perm-panel,
+#site-panel,
+#palette-panel,
+#ext-popup-panel {
+  --panel-background-color: var(--bar-bg);
+  --panel-text-color: var(--fg);
+  --panel-border-color: var(--line);
+  --panel-border-radius: 10px;
+  --panel-padding: 0;
+  /* The shadow must fit inside its margin, or the popup's edge clips
+     it into a visible box. */
+  --panel-box-shadow-margin: 18px;
+  --panel-box-shadow: 0 4px 12px rgba(0, 0, 0, 0.26), 0 1px 3px rgba(0, 0, 0, 0.18);
   color: var(--fg);
-  border: 1px solid var(--line);
+  font: var(--font-size) var(--font);
 }
-#urlbar-panel {
-  width: min(560px, 90vw);
+#urlbar-panel,
+#palette-panel {
+  width: min(600px, 90vw);
 }
-#urlbar-inner {
-  padding: 10px 12px;
+#urlbar-inner,
+#palette-inner {
+  flex: 1;
+  min-width: 0;
+  padding: 14px 16px 12px;
 }
 #urlbar-row {
   display: flex;
   align-items: center;
   gap: 8px;
 }
-#urlbar-input {
+#urlbar-input,
+#palette-input {
+  appearance: none;
   flex: 1;
   min-width: 0;
   border: none;
-  border-bottom: 1px solid var(--accent);
+  border-radius: 0;
+  border-bottom: 1px solid var(--line);
   outline: none;
   background: transparent;
   color: var(--fg);
   font: inherit;
-  font-size: 14px;
-  padding: 0 0 4px;
+  font-size: 15px;
+  padding: 2px 2px 8px;
+  transition: border-color 0.15s ease;
 }
-#urlbar-input::placeholder {
+#urlbar-input:focus,
+#palette-input:focus {
+  border-bottom-color: var(--accent);
+}
+#palette-input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+}
+#urlbar-input::placeholder,
+#palette-input::placeholder,
+#find-input::placeholder {
   color: var(--muted);
   font-family: var(--serif);
   font-style: italic;
@@ -637,34 +870,56 @@ body {
 .urlbar-tool {
   appearance: none;
   border: 1px solid var(--line);
+  border-radius: var(--radius);
   background: transparent;
   color: var(--muted);
   font: inherit;
-  font-size: 12px;
-  padding: 4px 8px;
+  font-size: 11px;
+  padding: 4px 9px;
   cursor: pointer;
+  transition: color 0.12s ease, border-color 0.12s ease, background-color 0.12s ease;
 }
 .urlbar-tool:hover {
   color: var(--fg);
-  border-color: var(--muted);
+  background: var(--wash);
 }
-#urlbar-suggest {
-  max-height: 320px;
+#urlbar-suggest,
+#palette-list {
+  max-height: 340px;
   overflow-y: auto;
-  margin-top: 8px;
+  margin: 10px -8px 0;
 }
-#urlbar-suggest[hidden] {
+#urlbar-suggest[hidden],
+#palette-list[hidden] {
   display: none;
 }
-.suggest-row {
-  padding: 6px 10px;
+/* A picked row is a faint accent wash with a short vermilion edge:
+   the same mark as a side-strip tab, not a solid red block. */
+.suggest-row,
+.palette-row {
+  position: relative;
+  padding: 7px 12px;
+  border-radius: var(--radius);
   cursor: default;
 }
-.suggest-row[selected] {
-  background: var(--accent);
+.suggest-row:hover,
+.palette-row:hover {
+  background: var(--wash);
 }
-.suggest-row[selected] .suggest-url {
-  color: var(--fg);
+.suggest-row[selected],
+.palette-row[selected] {
+  background: var(--accent-wash);
+}
+.suggest-row[selected]::before,
+.palette-row[selected]::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 2px;
+  border-radius: 0 2px 2px 0;
+  background: var(--accent);
 }
 .suggest-title,
 .suggest-url {
@@ -675,41 +930,89 @@ body {
 .suggest-url {
   color: var(--muted);
   font-size: 11px;
+  margin-top: 1px;
 }
-#perm-panel {
+.palette-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+.palette-kind {
+  flex: none;
+  width: 64px;
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.palette-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The permission prompt and site information share one shape. */
+#perm-panel,
+#site-panel {
   width: 360px;
 }
-#perm-inner {
-  padding: 12px 14px;
+#perm-inner,
+#site-inner {
+  flex: 1;
+  min-width: 0;
+  padding: 16px 18px 14px;
 }
-#perm-text {
-  margin-bottom: 10px;
-  line-height: 1.5;
+#perm-text,
+#site-state {
+  margin-bottom: 12px;
+  line-height: 1.6;
+}
+#site-host {
+  font-family: var(--serif);
+  font-size: 16px;
+  margin-bottom: 6px;
+}
+#site-perms {
+  margin-bottom: 12px;
 }
 #perm-remember-row {
   display: flex;
   align-items: center;
   gap: 6px;
   color: var(--muted);
-  margin-bottom: 10px;
+  margin-bottom: 14px;
 }
-#perm-buttons {
+#perm-buttons,
+#site-buttons {
   display: flex;
+  justify-content: flex-end;
   gap: 8px;
 }
 #perm-buttons button,
-#perm-manage-close {
+#perm-manage-close,
+#site-buttons button,
+.perm-manage-row button {
   appearance: none;
   border: 1px solid var(--line);
+  border-radius: var(--radius);
   background: transparent;
   color: var(--fg);
   font: inherit;
   padding: 5px 14px;
   cursor: pointer;
+  transition: border-color 0.12s ease, background-color 0.12s ease;
 }
 #perm-buttons button:hover,
-#perm-manage-close:hover {
-  border-color: var(--muted);
+#perm-manage-close:hover,
+#site-buttons button:hover,
+.perm-manage-row button:hover {
+  background: var(--wash);
+}
+/* The first answer in each row is the one the eye should find. */
+#perm-allow,
+#site-close {
+  border-color: var(--accent) !important;
+  background: var(--accent-wash) !important;
 }
 #perm-manage[hidden] {
   display: none;
@@ -717,127 +1020,21 @@ body {
 #perm-manage-title {
   margin-bottom: 8px;
 }
+#perm-manage-close {
+  margin-top: 10px;
+}
 .perm-manage-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 4px 0;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
 }
 .perm-manage-row button {
-  appearance: none;
-  border: 1px solid var(--line);
-  background: transparent;
-  color: var(--muted);
-  font: inherit;
-  font-size: 12px;
-  padding: 2px 8px;
-  cursor: pointer;
-}
-/* Site information: the permission panel's shape, reused. */
-#site-panel {
-  padding: 0;
-  background: var(--bar-bg);
-  color: var(--fg);
-  border: 1px solid var(--line);
-  width: 360px;
-}
-#site-inner {
-  padding: 12px 14px;
-}
-#site-host {
-  font-family: var(--serif);
-  font-size: 15px;
-  margin-bottom: 6px;
-}
-#site-state {
-  line-height: 1.5;
-  margin-bottom: 10px;
-}
-#site-perms {
-  margin-bottom: 10px;
-}
-#site-buttons {
-  display: flex;
-  gap: 8px;
-}
-#site-buttons button {
-  appearance: none;
-  border: 1px solid var(--line);
-  background: transparent;
-  color: var(--fg);
-  font: inherit;
-  padding: 5px 14px;
-  cursor: pointer;
-}
-#site-buttons button:hover {
-  border-color: var(--muted);
-}
-/* Command palette: the floating bar's shape, with a kind tag
-   (Command / Tab / Bookmark) ahead of each entry. */
-#palette-panel {
-  padding: 0;
-  background: var(--bar-bg);
-  color: var(--fg);
-  border: 1px solid var(--line);
-  width: min(560px, 90vw);
-}
-#palette-inner {
-  padding: 10px 12px;
-}
-#palette-input {
-  width: 100%;
-  box-sizing: border-box;
-  border: none;
-  border-bottom: 1px solid var(--accent);
-  outline: none;
-  background: transparent;
-  color: var(--fg);
-  font: inherit;
-  font-size: 14px;
-  padding: 0 0 4px;
-}
-#palette-input::placeholder {
-  color: var(--muted);
-  font-family: var(--serif);
-  font-style: italic;
-}
-#palette-list {
-  max-height: 320px;
-  overflow-y: auto;
-  margin-top: 8px;
-}
-#palette-list[hidden] {
-  display: none;
-}
-.palette-row {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  padding: 6px 10px;
-  cursor: default;
-}
-.palette-row[selected] {
-  background: var(--accent);
-}
-.palette-kind {
-  flex: none;
   color: var(--muted);
   font-size: 11px;
-  width: 64px;
-}
-.palette-row[selected] .palette-kind {
-  color: var(--fg);
-}
-.palette-title {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-#ext-popup-panel {
-  padding: 0;
-  background: var(--bar-bg);
-  border: 1px solid var(--line);
+  padding: 2px 9px;
 }
 #ext-popup-browser {
   width: 360px;
