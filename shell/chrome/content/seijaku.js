@@ -251,6 +251,10 @@ var Seijaku = {
   // history, the private downloads list. Set in init from the window
   // arguments (and the engine's own private flag).
   isPrivate: false,
+  // Whether this is an extension's popup window (windows.create with
+  // type "popup", like Bitwarden's passkey window): one page, no strip,
+  // no window frame, nothing saved. ext/ext-windows.js opens its page.
+  isPopup: false,
   // Current floating-bar suggestions, if the bar is open.
   _suggestItems: [],
   _suggestIndex: -1,
@@ -304,6 +308,14 @@ var Seijaku = {
     this.initPrivateFlag();
     if (this.isPrivate) {
       document.documentElement.setAttribute("private", "true");
+    }
+    if (this.isPopup) {
+      // No frame, no strip, and never the main window's saved size.
+      let root = document.documentElement;
+      root.setAttribute("popup", "true");
+      root.setAttribute("hidechrome", "true");
+      root.removeAttribute("customtitlebar");
+      root.removeAttribute("persist");
     }
     this.applyTheme();
     this.applyTrackingProtection();
@@ -381,13 +393,15 @@ var Seijaku = {
     // about it here instead (see launchURL below). A private window
     // never takes these: the link belongs in the main window, and
     // this window must not open it a second time.
-    if (!this.isPrivate) {
+    if (!this.isPrivate && !this.isPopup) {
       try {
         Services.obs.addObserver(this, "commandline-args-changed");
       } catch (e) { /* remote links just open a new window instead */ }
     }
 
-    if (this.isPrivate) {
+    if (this.isPopup) {
+      // The extension opens its page here once the window is up.
+    } else if (this.isPrivate) {
       // No restored session, no launched link: a private window
       // starts clean, on the URL it was opened with or the home page.
       this.openTab(this._privateURL || this.homepage());
@@ -428,14 +442,22 @@ var Seijaku = {
         });
       }
     }
-    this._sleepTimer = setInterval(() => this.sleepIdleTabs(), 60 * 1000);
-    if (!this.isPrivate) {
+    if (!this.isPopup) {
+      this._sleepTimer = setInterval(() => this.sleepIdleTabs(), 60 * 1000);
+    }
+    if (!this.isPrivate && !this.isPopup) {
       this.maybeCheckForUpdates();
     }
+    this._initDone = true;
   },
 
   /** Reads the private flag from the engine and the window argument. */
   initPrivateFlag() {
+    try {
+      let arg = (window.arguments || [])[0];
+      let text = typeof arg == "string" ? arg : arg?.data;
+      this.isPopup = !!(text && JSON.parse(text)?.popup);
+    } catch (e) { /* an ordinary window */ }
     try {
       let { PrivateBrowsingUtils } = ChromeUtils.importESModule(
         "resource://gre/modules/PrivateBrowsingUtils.sys.mjs"
@@ -1064,11 +1086,11 @@ var Seijaku = {
       Firefox does it) instead of loading a copy of its own: two
       copies of one file would each overwrite the other's changes. */
   dataOwner() {
-    if (this.isPrivate) {
+    if (this.isPrivate || this.isPopup) {
       try {
         for (let win of Services.wm.getEnumerator("seijaku:main")) {
           let other = win.Seijaku;
-          if (win != window && !win.closed && other && !other.isPrivate && other._dataLoaded) {
+          if (win != window && !win.closed && other && !other.isPrivate && !other.isPopup && other._dataLoaded) {
             return other;
           }
         }
@@ -2768,8 +2790,8 @@ var Seijaku = {
   },
 
   recordHistory(url, title = "") {
-    // A private window records nothing.
-    if (this.isPrivate) {
+    // A private window records nothing, nor does a popup window.
+    if (this.isPrivate || this.isPopup) {
       return;
     }
     // Internal pages are never history: the home page, settings,
@@ -3893,6 +3915,13 @@ var Seijaku = {
   },
 
   openTab(url, options = {}) {
+    // A popup window holds its one page; anything else it opens (a
+    // link, Ctrl+T) goes to an ordinary window as a tab.
+    let main = this.isPopup && this.tabs.length ? this.tabWindow() : null;
+    if (main) {
+      main.focus();
+      return main.Seijaku.openTab(url, options);
+    }
     let tab = new Tab();
     tab.url = url || "about:blank";
     tab.pinned = !!options.pinned;
@@ -4319,8 +4348,8 @@ var Seijaku = {
 
   /** Marks the session for writing; see flushSession. */
   saveSession() {
-    // A private window never writes the shared session file.
-    if (this.isPrivate) {
+    // A private or popup window never writes the shared session file.
+    if (this.isPrivate || this.isPopup) {
       return;
     }
     this._sessionDirty = true;
@@ -4345,8 +4374,8 @@ var Seijaku = {
   },
 
   restoreSession() {
-    // A private window never reads the shared session file.
-    if (this.isPrivate) {
+    // A private or popup window never reads the shared session file.
+    if (this.isPrivate || this.isPopup) {
       return Promise.resolve(false);
     }
     let path = this.sessionPath();
@@ -4400,6 +4429,25 @@ var Seijaku = {
   // just focus the existing window); the JSON argument carries the
   // URL and is read back by initPrivateFlag. Bookmarks stay shared,
   // the way Firefox does it.
+
+  /** The front-most ordinary (not popup) window as private as this
+      one, or null. */
+  tabWindow() {
+    let fits = win =>
+      win && win != window && !win.closed && win.Seijaku &&
+      !win.Seijaku.isPopup && win.Seijaku.isPrivate == this.isPrivate;
+    let top = Services.wm.getMostRecentWindow("seijaku:main");
+    if (fits(top)) {
+      return top;
+    }
+    let found = null;
+    for (let win of Services.wm.getEnumerator("seijaku:main")) {
+      if (fits(win)) {
+        found = win;
+      }
+    }
+    return found;
+  },
 
   openPrivateWindow(url) {
     try {

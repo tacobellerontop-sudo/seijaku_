@@ -347,6 +347,11 @@ this.tabs = class extends ExtensionAPIPersistent {
             createProperties.windowId !== null
               ? windowTracker.getWindow(createProperties.windowId, context)
               : windowTracker.getTopWindow(context);
+          // A popup window holds one page; new tabs go to an ordinary
+          // window, as in Firefox.
+          if (shellOf(window)?.isPopup) {
+            window = windowTracker.topTabWindow(isPrivateWindow(window)) || window;
+          }
           let shell = shellOf(window);
           if (!shell || !context.canAccessWindow(window)) {
             throw new ExtensionError("Not allowed to create tabs on the target window");

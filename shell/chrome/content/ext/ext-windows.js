@@ -3,15 +3,63 @@
    License 2.0). Seijaku keeps one normal window (plus private ones), so
    windows.create opens its tabs in the window that is already there
    (or a private window when asked for incognito) instead of starting a
-   second main window. */
+   second main window. A popup window (type "popup", like Bitwarden's
+   passkey prompt) is a window of its own: one page, no strip, no frame,
+   and closing it closes only it. */
 
 "use strict";
 
-ChromeUtils.defineESModuleGetters(this, {
-  PrivateBrowsingUtils: "resource://gre/modules/PrivateBrowsingUtils.sys.mjs",
-});
-
 var { ExtensionError } = ExtensionUtils;
+
+/** A popup window for windows.create: a Seijaku window in popup mode
+    (see isPopup in seijaku.js), sized and placed as asked, or centred
+    on the front window. Resolves once its page has started loading. */
+async function openPopupWindow(createData, urls, incognito, principalFor) {
+  let opener = windowTracker.topTabWindow(incognito) || windowTracker.topWindow;
+  if (!opener) {
+    throw new ExtensionError("No Seijaku window is open");
+  }
+  let width = createData.width ?? 400;
+  let height = createData.height ?? 520;
+  let left = createData.left ?? Math.round(opener.screenX + (opener.outerWidth - width) / 2);
+  let top = createData.top ?? Math.round(opener.screenY + (opener.outerHeight - height) / 2);
+  let features = [
+    "chrome",
+    "dialog=no",
+    "resizable",
+    incognito ? "private" : "non-private",
+    `width=${width}`,
+    `height=${height}`,
+    `left=${left}`,
+    `top=${top}`,
+  ];
+  let arg = Cc["@mozilla.org/supports-string;1"].createInstance(Ci.nsISupportsString);
+  arg.data = JSON.stringify({ popup: true, private: incognito });
+  let window = Services.ww.openWindow(null, opener.location.href, "_blank", features.join(","), arg);
+  // Seijaku.init runs on the window's load; wait for it to finish.
+  await new Promise((resolve, reject) => {
+    let start = Date.now();
+    let poll = () => {
+      if (window.closed) {
+        reject(new ExtensionError("The popup window was closed"));
+      } else if (shellOf(window)?._initDone) {
+        resolve();
+      } else if (Date.now() - start > 20000) {
+        reject(new ExtensionError("The popup window didn't open"));
+      } else {
+        window.setTimeout(poll, 20);
+      }
+    };
+    poll();
+  });
+  // A popup window holds one page: the first address.
+  let url = urls[0];
+  shellOf(window).openTab(url ?? "about:blank", url ? { triggeringPrincipal: principalFor(url) } : {});
+  if (createData.focused !== false) {
+    window.focus();
+  }
+  return windowManager.convert(window, { populate: true });
+}
 
 this.windows = class extends ExtensionAPIPersistent {
   windowEventRegistrar(event, listener) {
@@ -126,14 +174,21 @@ this.windows = class extends ExtensionAPIPersistent {
             }
           }
           let incognito = !!createData.incognito;
-          let window = incognito
-            ? [...windowTracker.browserWindows()].find(w => PrivateBrowsingUtils.isWindowPrivate(w))
-            : windowTracker.topNonPBWindow;
+          let principalFor = url =>
+            context.checkLoadURL(url, { dontReportErrors: true })
+              ? context.principal
+              : Services.scriptSecurityManager.createContentPrincipal(Services.io.newURI(url), {
+                  privateBrowsingId: incognito ? 1 : 0,
+                });
+          if (createData.type && createData.type != "normal") {
+            return openPopupWindow(createData, urls, incognito, principalFor);
+          }
+          let window = windowTracker.topTabWindow(incognito);
           let shell = shellOf(window);
           if (!shell) {
             // No window of that kind yet: a private one is opened with
             // the first address; anything else rides the top window.
-            let top = shellOf(windowTracker.topWindow);
+            let top = shellOf(windowTracker.topTabWindow());
             if (!top) {
               throw new ExtensionError("No Seijaku window is open");
             }
@@ -142,14 +197,8 @@ this.windows = class extends ExtensionAPIPersistent {
               throw new ExtensionError("The private window is opening; its id isn't known yet");
             }
             shell = top;
-            window = windowTracker.topWindow;
+            window = windowTracker.topTabWindow();
           }
-          let principalFor = url =>
-            context.checkLoadURL(url, { dontReportErrors: true })
-              ? context.principal
-              : Services.scriptSecurityManager.createContentPrincipal(Services.io.newURI(url), {
-                  privateBrowsingId: incognito ? 1 : 0,
-                });
           if (createData.tabId !== null) {
             let nativeTab = tabTracker.getTab(createData.tabId);
             shellOf(nativeTab.el.ownerDocument.defaultView)?.selectTab(nativeTab);

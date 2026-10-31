@@ -1177,3 +1177,10 @@ body {
   color: var(--fg);
   font: calc(var(--font-size) + 1px) var(--font);
 }
+
+/* An extension's popup window (Bitwarden's passkey prompt and the
+   like): only its page. */
+:root[popup] #strip,
+:root[popup] #edge-strip {
+  display: none !important;
+}
