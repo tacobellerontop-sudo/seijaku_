@@ -65,6 +65,11 @@
       });
     }
     let home = Seijaku.openTab("seijaku:home");
+    // The fresh profile starts on about:blank; drop it so the strip
+    // shows only the scene's tabs.
+    for (let tab of Seijaku.tabs.filter(t => t.url == "about:blank")) {
+      Seijaku.closeTab(tab, { force: true });
+    }
     await sleep(2500);
     await shot("01-home");
 
@@ -105,6 +110,12 @@
     Services.prefs.setStringPref("seijaku.tabs.position", "left");
     await sleep(1500);
     await shot("09-tabs-left");
+
+    // A real web page, for the README.
+    Services.prefs.setStringPref("seijaku.tabs.position", "top");
+    Seijaku.openTab("https://en.wikipedia.org/wiki/Wabi-sabi");
+    await sleep(8000);
+    await shot("10-web-page");
   }
 
   async function waitForData() {
