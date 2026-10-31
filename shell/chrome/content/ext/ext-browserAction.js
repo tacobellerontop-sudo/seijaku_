@@ -168,7 +168,7 @@ class SeijakuBrowserAction extends BrowserActionBase {
       return tabContext.get(target.el.ownerDocument.defaultView);
     });
     super(tabContext, extension);
-    this.api = api;
+    this.extensionApi = api;
     this.widgetId = `ext-btn-${makeWidgetId(extension.id)}`;
     this.onWindowOpen = window => this.addButton(window);
   }
@@ -294,7 +294,7 @@ class SeijakuBrowserAction extends BrowserActionBase {
   }
 
   dispatchClick(tab, clickInfo) {
-    this.api.emit("click", tab, clickInfo);
+    this.extensionApi.emit("click", tab, clickInfo);
   }
 
   isPanelShownBlockingOpenPopup(window) {
