@@ -53,17 +53,21 @@
     return tab;
   }
 
-  /** Synthesizes mouse events inside a web page's own process, the way
-      the engine's tests do (a chrome-side event does not reach a
-      headless remote page): a frame script calls the page's
-      windowUtils, so the page sees trusted events at x, y. */
+  /** Synthesizes mouse events at x, y inside a page's <browser>. The
+      window routes them to the page like a real click. Current Gecko
+      has Window.synthesizeMouseEvent; older ones windowUtils'
+      sendMouseEvent. */
   function pageMouse(browser, events) {
-    let code = `(${(list => {
-      for (let [type, x, y, button, modifiers] of list) {
-        content.windowUtils.sendMouseEvent(type, x, y, button, 1, modifiers || 0);
+    let rect = browser.getBoundingClientRect();
+    for (let [type, x, y, button] of events) {
+      let cx = rect.left + x;
+      let cy = rect.top + y;
+      if (typeof window.synthesizeMouseEvent == "function") {
+        window.synthesizeMouseEvent(type, cx, cy, { button, clickCount: 1 });
+      } else {
+        window.windowUtils.sendMouseEvent(type, cx, cy, button, 1, 0);
       }
-    }).toString()})(${JSON.stringify(events)});`;
-    browser.messageManager.loadFrameScript("data:," + encodeURIComponent(code), false);
+    }
   }
 
   /** Answers the next permission prompt the shell puts up. */
