@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>child</title></head>
+<body>
+<p>the popup page</p>
+<script>
+  let via = new URLSearchParams(location.search).get("via");
+  if (window.opener) {
+    document.title = "child:opener";
+    window.opener.postMessage("hello-" + via, "*");
+    if (via == "open") {
+      setTimeout(() => window.close(), 500);
+    }
+  } else {
+    document.title = "child:noopener";
+  }
+</script>
+</body>
+</html>

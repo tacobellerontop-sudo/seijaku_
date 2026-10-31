@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>opener:waiting</title>
+<style>
+body { margin: 0; }
+#link, #open { display: block; width: 400px; height: 200px; margin: 0; border: 0; background: #ccc; }
+#open { background: #aac; }
+</style>
+</head>
+<body>
+<a id="link" href="popup-child.html?via=link" target="_blank">a target=_blank link</a>
+<button id="open">a sign-in button (window.open with features)</button>
+<script>
+  // Like a sign-in button: a small window that hands its result back
+  // with postMessage, then closes itself.
+  document.getElementById("open").addEventListener("click", () => {
+    let w = window.open("popup-child.html?via=open", "signin", "width=420,height=520");
+    if (!w) {
+      document.title = "opener:blocked";
+    }
+  });
+  window.addEventListener("message", event => {
+    document.title = "opener:" + event.data;
+  });
+</script>
+</body>
+</html>

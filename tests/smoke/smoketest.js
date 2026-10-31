@@ -310,6 +310,46 @@
       Seijaku.closeTab(links);
     });
 
+    await check("a target=_blank link opens a tab beside its page", async () => {
+      let page = await openAndLoad("popup-opener.html");
+      let target = BASE + "popup-child.html?via=link";
+      let tries = 0;
+      await waitFor("a tab for the link", () => {
+        if (!Seijaku.tabs.some(t => t.url == target) && tries++ % 10 == 0) {
+          pageMouse(page.browser, [["mousedown", 40, 40, 0], ["mouseup", 40, 40, 0]]);
+        }
+        return Seijaku.tabs.some(t => t.url == target);
+      });
+      let child = Seijaku.tabs.find(t => t.url == target);
+      assert(Seijaku.tabs.indexOf(child) == Seijaku.tabs.indexOf(page) + 1, "the new tab is not beside its page");
+      await waitFor("the link's page to load", () => child.title.startsWith("child:"));
+      // A plain _blank link gets no opener (the web's rule since 2021).
+      assert(child.title == "child:noopener", child.title);
+      Seijaku.closeTab(child);
+      Seijaku.closeTab(page);
+    });
+
+    await check("a sign-in popup (window.open) opens, messages its opener and closes", async () => {
+      let page = await openAndLoad("popup-opener.html");
+      let target = BASE + "popup-child.html?via=open";
+      let tries = 0;
+      await waitFor("a tab for the popup", () => {
+        if (!Seijaku.tabs.some(t => t.url == target) && tries++ % 10 == 0) {
+          pageMouse(page.browser, [["mousedown", 40, 300, 0], ["mouseup", 40, 300, 0]]);
+        }
+        return Seijaku.tabs.some(t => t.url == target);
+      });
+      assert(page.title != "opener:blocked", "the popup was blocked");
+      let child = Seijaku.tabs.find(t => t.url == target);
+      assert(child.openerTab === page, "the popup doesn't know its opener's tab");
+      assert(Seijaku.tabs.indexOf(child) == Seijaku.tabs.indexOf(page) + 1, "the popup is not beside its page");
+      await waitFor("the opener to get the popup's message", () => page.title == "opener:hello-open");
+      await waitFor("the popup to close itself", () => !Seijaku.tabs.includes(child));
+      assert(Seijaku.selected === page, "closing the popup didn't return to its page");
+      Seijaku.closeTab(page);
+      return page.title;
+    });
+
     await check("a page can go full screen and back", async () => {
       let fs = Seijaku.openTab(BASE + "fullscreen.html");
       await waitFor("the page to go full screen", () => fs.title != "fs:waiting" && fs.title.startsWith("fs:"));

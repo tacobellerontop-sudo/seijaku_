@@ -118,7 +118,7 @@ const SESSION_FILE = "seijaku-session.json";
 const DATA_FILE = "seijaku-data.json";
 const HISTORY_LIMIT = 1000;
 const MESSAGE_MS = 4000;
-const SEIJAKU_VERSION = "1.0.2";
+const SEIJAKU_VERSION = "1.0.3";
 const UPDATE_REPO = "tacobellerontop-sudo/seijaku_";
 const UPDATE_CHECK_MS = 24 * 60 * 60 * 1000;
 // Session and data writes are batched: a page load reports its
@@ -418,6 +418,7 @@ var Seijaku = {
     window.addEventListener("keydown", this, true);
     window.addEventListener("mousemove", this);
     window.addEventListener("unload", this);
+    window.addEventListener("DOMWindowClose", event => this.onWindowClose(event), true);
     Keys.install();
     // A link clicked elsewhere while Seijaku runs arrives as a remote
     // command line; without a handler of its own, the shell learns
@@ -921,70 +922,117 @@ var Seijaku = {
 
   // -------------------------------------------------------------- popups
   //
-  // A window.open that did nothing was the expected symptom of a
-  // shell that gives Gecko nowhere to put the new window. The chrome
-  // window answers for its pages through nsIBrowserDOMWindow, so this
-  // is Seijaku's: every request maps onto a tab, which is the shell's
-  // policy already (open_newwindow=3 with restriction=0 diverts even
-  // feature popups to tabs). It returns the new tab's content window,
-  // because a caller that gets nothing back experiences exactly
-  // "popup did nothing". Two assignment points are documented for
-  // this object and they disagree, so both are set; each is guarded,
-  // so a missing interface in the shipped engine just leaves popups
-  // as they were instead of breaking the shell.
+  // A page's window.open, or a target="_blank" link, asks the chrome
+  // window for somewhere to put the new page through
+  // nsIBrowserDOMWindow. For a web page (a content process) the engine
+  // calls createContentWindowInFrame and needs the new <browser>
+  // element back, created with the openWindowInfo it was handed: that
+  // is what links the new page to its opener, so window.opener and
+  // postMessage work and a sign-in popup (Google, Anthropic) can hand
+  // its result back. Without that method the engine got an error and
+  // the click did nothing at all. Every request becomes a tab next to
+  // the opener (open_newwindow=3, restriction=0 send even feature
+  // popups here); a popup page that closes itself (window.close())
+  // closes its tab and returns to the page that opened it.
 
   initBrowserDOMWindow() {
     let provider;
     try {
       provider = {
         QueryInterface: ChromeUtils.generateQI([Ci.nsIBrowserDOMWindow]),
-        openURI(uri, opener, where) {
-          return Seijaku.openPopup(uri, where);
+        createContentWindow(uri, openWindowInfo, where, flags, triggeringPrincipal) {
+          return Seijaku.openPopup({ uri, openWindowInfo, where, flags, triggeringPrincipal, skipLoad: true })?.browsingContext ?? null;
         },
-        openURIInFrame(uri, opener, where) {
-          return Seijaku.openPopup(uri, where);
+        openURI(uri, openWindowInfo, where, flags, triggeringPrincipal) {
+          return Seijaku.openPopup({ uri, openWindowInfo, where, flags, triggeringPrincipal })?.browsingContext ?? null;
         },
-        isTabContentWindow(win) {
-          try {
-            return Seijaku.tabs.some(t => t.browser?.contentWindow == win);
-          } catch (e) {
-            return false;
-          }
+        createContentWindowInFrame(uri, params, where, flags, name) {
+          return Seijaku.openPopup({ params, where, flags, name, skipLoad: true });
         },
-        createNewWindow(uri, opener, where) {
-          return Seijaku.openPopup(uri, where);
+        openURIInFrame(uri, params, where, flags, name) {
+          return Seijaku.openPopup({ uri, params, where, flags, name });
+        },
+        canClose() {
+          return true;
+        },
+        get tabCount() {
+          return Seijaku.tabs.length;
         },
       };
     } catch (e) {
       return;
     }
     try {
-      window.QueryInterface(Ci.nsIDOMChromeWindow).browserDOMWindow = provider;
-    } catch (e) { /* the other assignment may still work */ }
-    try {
       window.browserDOMWindow = provider;
     } catch (e) { /* assignment is best-effort */ }
+    try {
+      if (!window.browserDOMWindow) {
+        window.QueryInterface(Ci.nsIDOMChromeWindow).browserDOMWindow = provider;
+      }
+    } catch (e) { /* an engine without either leaves popups as they were */ }
   },
 
-  openPopup(uri, where) {
-    let url = "";
+  /** Opens a page's popup as a tab and returns its <browser>, or null.
+      With openWindowInfo (from the engine, directly or in params) the
+      new browser is the opener's own new window: nothing is loaded
+      here, the opening page drives it. */
+  openPopup({ uri, params, openWindowInfo, where, flags = 0, triggeringPrincipal, name, skipLoad = false }) {
+    let I = Ci.nsIBrowserDOMWindow;
     try {
-      url = uri?.spec ?? String(uri ?? "");
-    } catch (e) {
-      return null;
-    }
-    if (!url) {
-      return null;
-    }
-    try {
-      if (where == Ci.nsIBrowserDOMWindow.OPEN_CURRENTWINDOW && this.selectedBrowser) {
-        this.load(this.selectedBrowser, url);
-        return this.selectedBrowser?.contentWindow ?? null;
+      openWindowInfo = openWindowInfo || params?.openWindowInfo || null;
+      triggeringPrincipal = triggeringPrincipal || params?.triggeringPrincipal ||
+        Services.scriptSecurityManager.getSystemPrincipal();
+      let url = "";
+      try {
+        url = uri?.spec ?? "";
+      } catch (e) { /* no address: the opener fills the window itself */ }
+      if (!openWindowInfo && !url) {
+        return null;
       }
-      let tab = this.openTab(url, { afterCurrent: true });
-      return tab.browser?.contentWindow ?? null;
+      if (where == I.OPEN_CURRENTWINDOW && !openWindowInfo && this.selectedBrowser) {
+        this.load(this.selectedBrowser, url, { triggeringPrincipal });
+        return this.selectedBrowser;
+      }
+      // The opener's tab, so a closing popup can go back to it.
+      let openerBrowser = params?.openerBrowser || openWindowInfo?.parent?.top?.embedderElement || null;
+      let opener = this.tabs.find(t => t.browser && t.browser == openerBrowser) || null;
+      let remoteType;
+      if (openWindowInfo) {
+        remoteType = openWindowInfo.isRemote
+          ? openerBrowser?.remoteType || openWindowInfo.parent?.top?.currentRemoteType || undefined
+          : E10SUtils.NOT_REMOTE;
+      }
+      let tab = this.openTab(url || "about:blank", {
+        afterCurrent: !opener,
+        index: opener ? this.tabs.indexOf(opener) + 1 : undefined,
+        background: where == I.OPEN_NEWTAB_BACKGROUND,
+        openWindowInfo,
+        remoteType,
+        name,
+        triggeringPrincipal,
+        skipLoad: skipLoad || !url,
+      });
+      tab.openerTab = opener;
+      return tab.browser;
     } catch (e) {
+      console.error("Seijaku: a page's new window failed to open", e);
       return null;
+    }
+  },
+
+  /** A page closed itself (window.close() in a page window.open made):
+      close its tab, back to the page that opened it. */
+  onWindowClose(event) {
+    let tab = this.tabs.find(t => t.browser && t.browser == event.target);
+    if (!tab) {
+      return;
+    }
+    event.preventDefault();
+    let opener = tab.openerTab;
+    let wasSelected = tab === this.selected;
+    this.closeTab(tab, { force: true });
+    if (wasSelected && opener && this.tabs.includes(opener)) {
+      this.selectTab(opener);
     }
   },
 
@@ -3789,11 +3837,13 @@ var Seijaku = {
     return b;
   },
 
-  attachBrowser(tab, { url, openWindowInfo } = {}) {
-    let remoteType = openWindowInfo && !openWindowInfo.isRemote
+  attachBrowser(tab, { url, openWindowInfo, remoteType, name } = {}) {
+    // A page's popup lives in its opener's process (openPopup passes
+    // the opener's type); anything else goes where its address does.
+    remoteType = remoteType || (openWindowInfo && !openWindowInfo.isRemote
       ? E10SUtils.NOT_REMOTE
-      : ChromeUtils.predictRemoteTypeForURI(realURL(url || tab.url), { window });
-    let b = this.createBrowser({ remoteType, openWindowInfo });
+      : ChromeUtils.predictRemoteTypeForURI(realURL(url || tab.url), { window }));
+    let b = this.createBrowser({ remoteType, openWindowInfo, name });
     tab.browser = b;
     b.tab = tab;
     this.$content.append(b);
@@ -4400,8 +4450,16 @@ var Seijaku = {
       return;
     }
     let now = Date.now();
+    // A popup and its opener stay awake while both are open: sleeping
+    // either one would cut the link a sign-in hands its result back on.
+    let linked = new Set();
     for (let tab of this.tabs) {
-      if (!tab.asleep && now - tab.lastActive > minutes * 60 * 1000) {
+      if (tab.openerTab && this.tabs.includes(tab.openerTab)) {
+        linked.add(tab).add(tab.openerTab);
+      }
+    }
+    for (let tab of this.tabs) {
+      if (!tab.asleep && !linked.has(tab) && now - tab.lastActive > minutes * 60 * 1000) {
         this.sleep(tab);
       }
     }
