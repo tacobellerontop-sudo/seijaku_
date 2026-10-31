@@ -153,6 +153,25 @@ class WindowTracker extends WindowTrackerBase {
     return this.getTopWindow(context);
   }
 
+  /** The front-most window tabs can open in: not an extension's popup
+      window, and private or not as asked (null: either). */
+  topTabWindow(isPrivate = null) {
+    let fits = win =>
+      win && !win.closed && shellOf(win) && !shellOf(win).isPopup &&
+      (isPrivate === null || isPrivateWindow(win) == isPrivate);
+    let top = this.topWindow;
+    if (fits(top)) {
+      return top;
+    }
+    let found = null;
+    for (let win of Services.wm.getEnumerator(WINDOW_TYPE)) {
+      if (fits(win)) {
+        found = win;
+      }
+    }
+    return found;
+  }
+
   addProgressListener(window, listener) {
     let listeners = this.progress.get(window);
     if (!listeners.has(listener)) {
@@ -512,7 +531,7 @@ class TabContext extends EventEmitter {
 
 class Window extends WindowBase {
   get type() {
-    return "normal";
+    return shellOf(this.window)?.isPopup ? "popup" : "normal";
   }
 
   get focused() {
@@ -692,7 +711,7 @@ extensions.on("page-shutdown", (type, context) => {
 
 extensions.on("uninstalling", (msg, extension) => {
   if (extension.uninstallURL) {
-    shellOf(windowTracker.topNonPBWindow)?.openTab(extension.uninstallURL, { afterCurrent: true });
+    shellOf(windowTracker.topTabWindow(false))?.openTab(extension.uninstallURL, { afterCurrent: true });
   }
 });
 /* eslint-enable mozilla/balanced-listeners */
@@ -700,7 +719,7 @@ extensions.on("uninstalling", (msg, extension) => {
 /* runtime.openOptionsPage: Seijaku has no add-ons manager to embed the
    page in, so options always open in a tab of their own. */
 global.openOptionsPage = extension => {
-  let shell = shellOf(windowTracker.topNonPBWindow || windowTracker.topWindow);
+  let shell = shellOf(windowTracker.topTabWindow(false) || windowTracker.topTabWindow());
   let page = extension.optionsPageProperties?.page;
   if (!shell || !page) {
     return Promise.reject({ message: "No options page" });

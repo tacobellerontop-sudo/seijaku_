@@ -7,6 +7,13 @@
 "use strict";
 
 (() => {
+  // Only the first window runs the test: others (an extension's popup
+  // window) are part of it.
+  for (let win of Services.wm.getEnumerator("seijaku:main")) {
+    if (win != window) {
+      return;
+    }
+  }
   const BASE = Services.prefs.getStringPref("seijaku.smoke.base", "http://127.0.0.1:8765/");
   const results = [];
 

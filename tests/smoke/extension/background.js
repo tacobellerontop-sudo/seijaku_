@@ -89,6 +89,38 @@ browser.tabs.onUpdated.addListener(async (tabId, info, tab) => {
     return activated.length;
   });
 
+  // Bitwarden's passkey prompt: a popup window of its own, which the
+  // extension closes itself. Closing it must leave this window open.
+  await check("popup window", async () => {
+    let before = (await browser.windows.getAll()).length;
+    let win = await browser.windows.create({
+      url: browser.runtime.getURL("passkey.html"),
+      type: "popup",
+      width: 380,
+      height: 320,
+    });
+    assert(win.type == "popup", `type ${win.type}`);
+    assert(win.id != tab.windowId, "opened in this window");
+    assert(win.tabs?.length == 1, `${win.tabs?.length} tabs`);
+    let popupTab = win.tabs[0];
+    for (let i = 0; i < 50 && (await browser.tabs.get(popupTab.id)).title != "passkey:ok"; i++) {
+      await new Promise(r => setTimeout(r, 100));
+    }
+    let title = (await browser.tabs.get(popupTab.id)).title;
+    assert(title == "passkey:ok", `page title ${title}`);
+    assert((await browser.windows.getAll()).length == before + 1, "no new window");
+    let other = await browser.tabs.create({ url: base + "article.html", windowId: win.id, active: false });
+    assert(other.windowId != win.id, "a tab opened in the popup window");
+    await browser.tabs.remove(other.id);
+    await browser.windows.remove(win.id);
+    await new Promise(r => setTimeout(r, 500));
+    let after = await browser.windows.getAll();
+    assert(!after.some(w => w.id == win.id), "popup window still open");
+    assert(after.some(w => w.id == tab.windowId), "the main window closed too");
+    assert((await browser.tabs.get(tabId)).windowId == tab.windowId, "target tab lost");
+    return `${win.width}x${win.height}`;
+  });
+
   await browser.tabs.create({ url: base + "ext-result.html#" + encodeURIComponent(JSON.stringify(results)), active: false });
   await browser.tabs.update(tabId, { active: true });
 });
