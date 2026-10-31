@@ -29,13 +29,26 @@
     throw new Error(`timed out waiting for ${what}`);
   }
 
-  async function check(name, fn) {
+  const RESULTS_FILE = PathUtils.join(PathUtils.profileDir, "smoke-results.json");
+
+  // Each check has a time limit, and results are written after every
+  // check, so one check that hangs can't hide the others.
+  async function check(name, fn, limitMs = 180000) {
+    dump(`Seijaku smoke: ${name}\n`);
+    let timer;
     try {
-      let detail = await fn();
+      let detail = await Promise.race([
+        fn(),
+        new Promise((_, reject) => (timer = setTimeout(() => reject(new Error(`no result in ${limitMs / 1000} s`)), limitMs))),
+      ]);
       results.push({ name, ok: true, detail: detail ?? "" });
     } catch (e) {
       results.push({ name, ok: false, detail: String(e?.message || e) });
+      dump(`Seijaku smoke: FAILED ${name}: ${e?.message || e}\n`);
+    } finally {
+      clearTimeout(timer);
     }
+    await IOUtils.writeJSON(RESULTS_FILE, results).catch(() => {});
   }
 
   function assert(cond, message) {
@@ -351,7 +364,7 @@
         results.push({ name: "smoke test harness", ok: false, detail: String(e?.message || e) });
       }
       try {
-        await IOUtils.writeJSON(PathUtils.join(PathUtils.profileDir, "smoke-results.json"), results);
+        await IOUtils.writeJSON(RESULTS_FILE, results);
       } finally {
         Services.startup.quit(Ci.nsIAppStartup.eForceQuit);
       }

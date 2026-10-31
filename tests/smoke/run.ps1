@@ -59,14 +59,18 @@ try {
     Start-Sleep 2
     Write-Host '--- browser output (errors and warnings) ---'
     foreach ($f in $log, "$log.err") {
-        if (Test-Path $f) { Get-Content $f | Select-String -Pattern 'error|exception|Seijaku' | Select-Object -First 80 | ForEach-Object { $_.Line } }
+        if (Test-Path $f) {
+            Get-Content $f | Select-String -Pattern 'error|exception|Seijaku|seijaku|moz-extension' |
+                Where-Object { $_.Line -notmatch 'BrowserWindowTracker|jsonview|performance-new' } |
+                Select-Object -First 300 | ForEach-Object { $_.Line }
+        }
     }
 } finally {
     Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue
 }
 
 $resultsFile = Join-Path $profile 'smoke-results.json'
-if (-not (Test-Path $resultsFile)) { throw 'no smoke-results.json: the test never finished (see the output above)' }
+if (-not (Test-Path $resultsFile)) { throw 'no smoke-results.json: the test never started a check (see the output above)' }
 $results = Get-Content -Raw $resultsFile | ConvertFrom-Json
 $failed = 0
 Write-Host '--- smoke results ---'
