@@ -140,7 +140,7 @@ function SeijakuProcessCount(Kill: Boolean): Integer;
 var
   Locator, Service, Procs, Proc: Variant;
   Dir, Path: String;
-  I: Integer;
+  I, N: Integer;
 begin
   Result := 0;
   Dir := Lowercase(AddBackslash(ExpandConstant('{app}')));
@@ -148,10 +148,12 @@ begin
     Locator := CreateOleObject('WbemScripting.SWbemLocator');
     Service := Locator.ConnectServer('.', 'root\CIMV2');
     Procs := Service.ExecQuery('SELECT ProcessId, ExecutablePath FROM Win32_Process WHERE ExecutablePath IS NOT NULL');
-    for I := 0 to Procs.Count - 1 do
+    N := Procs.Count;
+    for I := 0 to N - 1 do
     begin
       Proc := Procs.ItemIndex(I);
-      Path := Lowercase(Proc.ExecutablePath);
+      Path := Proc.ExecutablePath;
+      Path := Lowercase(Path);
       if Copy(Path, 1, Length(Dir)) = Dir then
       begin
         Result := Result + 1;
