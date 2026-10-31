@@ -456,6 +456,31 @@
       Seijaku.closeTab(old);
     });
 
+    await check("a PDF opened from Windows while Seijaku runs opens in a tab", async () => {
+      // What "Open with Seijaku" hands the running Seijaku: the open
+      // command's arguments, as a remote command line.
+      let dir = PathUtils.join(PathUtils.tempDir, "seijaku open test");
+      await IOUtils.makeDirectory(dir, { ignoreExisting: true });
+      let path = PathUtils.join(dir, "hello world.pdf");
+      let bytes = await (await fetch(PDF)).arrayBuffer();
+      await IOUtils.write(path, new Uint8Array(bytes));
+      let { SeijakuCommandLine } = ChromeUtils.importESModule("resource://seijaku/SeijakuCommandLine.sys.mjs");
+      let iniPath = PathUtils.join(PathUtils.tempDir, "x", "application.ini");
+      let first = Cu.createCommandLine(["-app", iniPath, "-url", path], null, Ci.nsICommandLine.STATE_INITIAL_LAUNCH);
+      let urls = SeijakuCommandLine.urlsFromCommandLine(first);
+      assert(urls.length == 1 && urls[0].startsWith("file:///") && urls[0].endsWith("hello%20world.pdf"), JSON.stringify(urls));
+      let remote = Cu.createCommandLine(["-url", path], null, Ci.nsICommandLine.STATE_REMOTE_AUTO);
+      let before = Seijaku.tabs.length;
+      Cc[SeijakuCommandLine.CONTRACT].getService(Ci.nsICommandLineHandler).handle(remote);
+      assert(remote.preventDefault, "the handler left it to the engine");
+      assert(Seijaku.tabs.length == before + 1, "no tab opened");
+      let tab = Seijaku.selected;
+      await waitFor("the file in the PDF viewer", () => Seijaku.pdfActor(tab) && tab.browser.currentURI?.spec == urls[0], 30000);
+      Seijaku.closeTab(tab);
+      await IOUtils.remove(dir, { recursive: true, ignoreAbsent: true });
+      return urls[0];
+    });
+
     await check("no PDF went to the downloads", async () => {
       let added = (await list.getAll()).slice(downloadsBefore).map(d => d.source.url);
       assert(!added.length, added.join(", "));

@@ -68,15 +68,20 @@ Type: filesandordirs; Name: "{app}"
 ; Seijaku as an app Windows knows: listed under "Open with" and in
 ; Settings > Apps > Default apps for web pages and http(s) links.
 ; Everything is under the user's own Software key, and goes when
-; Seijaku is uninstalled. Kept small on purpose: html and http(s)
-; only, no PDF or file-type sprawl.
+; Seijaku is uninstalled. Kept small on purpose: html, PDF and
+; http(s) only. The open commands start with -osint (the engine's
+; marker for an address from the OS): seijaku.exe checks it and adds
+; -app itself, because the engine refuses -osint after any other flag.
 Root: HKCU; Subkey: "Software\Classes\SeijakuHTML"; ValueType: string; ValueName: ""; ValueData: "Seijaku HTML Document"; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Classes\SeijakuHTML\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\seijaku.ico"
-Root: HKCU; Subkey: "Software\Classes\SeijakuHTML\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\seijaku.exe"" -app ""{app}\seijaku\application.ini"" -osint -url ""%1"""
+Root: HKCU; Subkey: "Software\Classes\SeijakuHTML\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\seijaku.exe"" -osint -url ""%1"""
+Root: HKCU; Subkey: "Software\Classes\SeijakuPDF"; ValueType: string; ValueName: ""; ValueData: "Seijaku PDF Document"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\SeijakuPDF\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\seijaku.ico"
+Root: HKCU; Subkey: "Software\Classes\SeijakuPDF\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\seijaku.exe"" -osint -url ""%1"""
 Root: HKCU; Subkey: "Software\Classes\SeijakuURL"; ValueType: string; ValueName: ""; ValueData: "Seijaku URL"; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Classes\SeijakuURL"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""
 Root: HKCU; Subkey: "Software\Classes\SeijakuURL\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\seijaku.ico"
-Root: HKCU; Subkey: "Software\Classes\SeijakuURL\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\seijaku.exe"" -app ""{app}\seijaku\application.ini"" -osint -url ""%1"""
+Root: HKCU; Subkey: "Software\Classes\SeijakuURL\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\seijaku.exe"" -osint -url ""%1"""
 Root: HKCU; Subkey: "Software\Clients\StartMenuInternet\Seijaku"; ValueType: string; ValueName: ""; ValueData: "Seijaku"; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Clients\StartMenuInternet\Seijaku\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\seijaku.ico"
 Root: HKCU; Subkey: "Software\Clients\StartMenuInternet\Seijaku\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\seijaku.exe"" -app ""{app}\seijaku\application.ini"""
@@ -88,11 +93,13 @@ Root: HKCU; Subkey: "Software\Clients\StartMenuInternet\Seijaku\Capabilities\URL
 Root: HKCU; Subkey: "Software\Clients\StartMenuInternet\Seijaku\Capabilities\URLAssociations"; ValueType: string; ValueName: "https"; ValueData: "SeijakuURL"
 Root: HKCU; Subkey: "Software\Clients\StartMenuInternet\Seijaku\Capabilities\FileAssociations"; ValueType: string; ValueName: ".htm"; ValueData: "SeijakuHTML"
 Root: HKCU; Subkey: "Software\Clients\StartMenuInternet\Seijaku\Capabilities\FileAssociations"; ValueType: string; ValueName: ".html"; ValueData: "SeijakuHTML"
+Root: HKCU; Subkey: "Software\Clients\StartMenuInternet\Seijaku\Capabilities\FileAssociations"; ValueType: string; ValueName: ".pdf"; ValueData: "SeijakuPDF"
 Root: HKCU; Subkey: "Software\RegisteredApplications"; ValueType: string; ValueName: "Seijaku"; ValueData: "Software\Clients\StartMenuInternet\Seijaku\Capabilities"; Flags: uninsdeletevalue
 Root: HKCU; Subkey: "Software\Classes\.htm\OpenWithProgids"; ValueType: string; ValueName: "SeijakuHTML"; ValueData: ""; Flags: uninsdeletevalue
 Root: HKCU; Subkey: "Software\Classes\.html\OpenWithProgids"; ValueType: string; ValueName: "SeijakuHTML"; ValueData: ""; Flags: uninsdeletevalue
+Root: HKCU; Subkey: "Software\Classes\.pdf\OpenWithProgids"; ValueType: string; ValueName: "SeijakuPDF"; ValueData: ""; Flags: uninsdeletevalue
 Root: HKCU; Subkey: "Software\Classes\Applications\seijaku.exe"; ValueType: string; ValueName: "FriendlyAppName"; ValueData: "Seijaku"; Flags: uninsdeletekey
-Root: HKCU; Subkey: "Software\Classes\Applications\seijaku.exe\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\seijaku.exe"" -app ""{app}\seijaku\application.ini"" -osint -url ""%1"""
+Root: HKCU; Subkey: "Software\Classes\Applications\seijaku.exe\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\seijaku.exe"" -osint -url ""%1"""
 
 [Icons]
 ; IconFilename matters: the running browser is firefox.exe, whose

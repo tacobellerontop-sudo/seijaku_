@@ -6,7 +6,9 @@ name: Smoke test
 # content process, find, zoom, reader view, camera/microphone and
 # notification prompts, peer connections, and saving. Before that,
 # tests/update/run.ps1 installs a build and runs its in-app Update
-# against a newer local installer. Nothing is published.
+# against a newer local installer, and tests/open/run.ps1 opens PDFs
+# with the open commands the installer registers, as Explorer does.
+# Nothing is published.
 
 on:
   pull_request:
@@ -34,6 +36,10 @@ jobs:
       - name: Run the update test
         shell: pwsh
         run: powershell -ExecutionPolicy Bypass -File tests\update\run.ps1 -App out\seijaku
+
+      - name: Run the open-a-file test
+        shell: pwsh
+        run: powershell -ExecutionPolicy Bypass -File tests\open\run.ps1 -App out\seijaku
 
       - name: Run the smoke test
         shell: pwsh

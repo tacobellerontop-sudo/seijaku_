@@ -105,6 +105,15 @@ try {
   console.error("Seijaku: starting the PDF viewer", e);
 }
 
+// Links and files opened from outside while Seijaku runs (Explorer's
+// "Open with", a link in another app): see SeijakuCommandLine.sys.mjs.
+const SeijakuCommandLine = ChromeUtils.importESModule("resource://seijaku/SeijakuCommandLine.sys.mjs");
+try {
+  SeijakuCommandLine.register();
+} catch (e) {
+  console.error("Seijaku: registering the command line handler", e);
+}
+
 // Site permission prompts (notifications, camera, microphone): see
 // PermissionPrompt.sys.mjs for why these are registered at runtime.
 try {
@@ -420,17 +429,6 @@ var Seijaku = {
     window.addEventListener("unload", this);
     window.addEventListener("DOMWindowClose", event => this.onWindowClose(event), true);
     Keys.install();
-    // A link clicked elsewhere while Seijaku runs arrives as a remote
-    // command line; without a handler of its own, the shell learns
-    // about it here instead (see launchURL below). A private window
-    // never takes these: the link belongs in the main window, and
-    // this window must not open it a second time.
-    if (!this.isPrivate && !this.isPopup) {
-      try {
-        Services.obs.addObserver(this, "commandline-args-changed");
-      } catch (e) { /* remote links just open a new window instead */ }
-    }
-
     if (this.isPopup) {
       // The extension opens its page here once the window is up.
     } else if (this.isPrivate) {
@@ -823,25 +821,6 @@ var Seijaku = {
   },
 
   observe(subject, topic, data) {
-    // A link clicked while Seijaku runs: open it in a new tab here
-    // and bring this window forward, instead of leaving the user on
-    // whatever page was already open.
-    if (topic == "commandline-args-changed") {
-      try {
-        let url = subject?.QueryInterface
-          ? this.launchURLFromCommandLine(subject.QueryInterface(Ci.nsICommandLine))
-          : null;
-        if (url) {
-          let target = url;
-          try {
-            target = this.urlFor(url);
-          } catch (e) { /* keep the raw address */ }
-          this.openTab(target, { afterCurrent: true });
-          window.focus();
-        }
-      } catch (e) { /* a remote link just doesn't open */ }
-      return;
-    }
     if (topic == "nsPref:changed" && data.startsWith(PREF)) {
       if (data == PREF + "theme" || data.startsWith(PREF + "theme.")) {
         this.applyTheme();
@@ -2936,55 +2915,25 @@ var Seijaku = {
 
   // -------------------------------------------------------------- launched links
   //
-  // Why a default-browser link used to land on the home page: the
-  // installer passes the address, but nothing in the shell ever read
-  // it, so the window just opened its default page. A registered
-  // command-line handler component would be the textbook fix, but
-  // registering one in the shipped, signed engine is unconfirmed
-  // (current docs call chrome.manifest registration deprecated), so
-  // the shell reads the launch address itself instead. Every read
-  // here is guarded: if none of these sources exists in the shipped
-  // engine, the shell behaves exactly as before — it cannot fail to
-  // start over a link it cannot read.
+  // A cold start's command line (a default-browser link, a file opened
+  // with Seijaku from Explorer) is read here by the first window.
+  // Later ones reach the running Seijaku through its command line
+  // handler (SeijakuCommandLine.sys.mjs), which opens them as tabs.
 
-  /** A web address from a command line, or null. Engine flags, paths
-     and option values can never pass: only a real web address, or a
-     bare dotted address, counts. */
+  /** The first address or file a command line asks to open, or null. */
   launchURLFromCommandLine(cmdLine) {
-    try {
-      let urlFlag = cmdLine.findFlag("url", false);
-      if (urlFlag >= 0 && urlFlag + 1 < cmdLine.length) {
-        let value = cmdLine.getArgument(urlFlag + 1);
-        if (/^(https?|ftp):\/\//i.test(value)) {
-          return value;
-        }
-      }
-      for (let i = 0; i < cmdLine.length; i++) {
-        let value = cmdLine.getArgument(i);
-        if (/^(https?|ftp):\/\//i.test(value)) {
-          return value;
-        }
-        // A bare address (example.com, localhost:3000): paths are
-        // excluded by the backslash test, flags by the dash test.
-        if (
-          !value.startsWith("-") &&
-          !value.includes("\\") &&
-          (/^[a-z0-9-]+(\.[a-z0-9-]+)+(:\d+)?(\/\S*)?$/i.test(value) ||
-            /^localhost(:\d+)?(\/\S*)?$/.test(value))
-        ) {
-          return value;
-        }
-      }
-    } catch (e) { /* no usable launch address */ }
-    return null;
+    return SeijakuCommandLine.urlsFromCommandLine(cmdLine)[0] ?? null;
   },
 
-  /** A web address this window was launched with, or null. */
+  /** The address or file this window was launched with, or null. */
   launchURL() {
     try {
       for (let arg of window.arguments || []) {
+        if (arg instanceof Ci.nsICommandLine) {
+          return this.launchURLFromCommandLine(arg);
+        }
         let value = typeof arg == "string" ? arg : arg?.data;
-        if (value && /^(https?|ftp):\/\//i.test(value)) {
+        if (value && /^(https?|ftp|file):\/\//i.test(value)) {
           return value;
         }
       }
@@ -5252,9 +5201,6 @@ var Seijaku = {
         try {
           Services.prefs.removeObserver(PREF, this);
         } catch (e) { /* never registered */ }
-        try {
-          Services.obs.removeObserver(this, "commandline-args-changed");
-        } catch (e) { /* never registered, or already gone */ }
         // A staged update installs now: the updater waits for this
         // process to be gone, installs silently, and restarts Seijaku.
         if (this._stagedUpdate && !this._updating) {

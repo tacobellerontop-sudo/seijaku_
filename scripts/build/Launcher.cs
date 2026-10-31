@@ -6,6 +6,13 @@
 // of its own — except when -app is missing entirely (a bare double-click),
 // where it supplies the shell's application.ini, so the launcher is a
 // complete entry point on its own instead of starting a bare engine.
+//
+// One exception: Windows' open commands (links, "Open with", default
+// apps) pass `-osint -url <address or file>`. The engine accepts -osint
+// only as the very first argument, followed by nothing but -url and its
+// one value, and quits on the spot otherwise (exit code 127), so it can
+// never be combined with -app. The launcher makes the same safety check
+// itself and then passes `-app <ini> -url <value>` without -osint.
 using System;
 using System.Diagnostics;
 using System.IO;
@@ -34,6 +41,13 @@ static class Launcher
         return sb.ToString();
     }
 
+    static bool IsFlag(string arg, string name)
+    {
+        string bare = arg.TrimStart('-');
+        if (arg.StartsWith("/")) bare = arg.Substring(1);
+        return bare.Length < arg.Length && string.Equals(bare, name, StringComparison.OrdinalIgnoreCase);
+    }
+
     static int Main(string[] args)
     {
         string dir = AppDomain.CurrentDomain.BaseDirectory;
@@ -42,6 +56,25 @@ static class Launcher
         {
             MessageBox(IntPtr.Zero, "Seijaku can't find firefox.exe next to seijaku.exe. Reinstall Seijaku.", "Seijaku", 0x10);
             return 1;
+        }
+        int osint = Array.FindIndex(args, a => IsFlag(a, "osint"));
+        if (osint >= 0)
+        {
+            // Accepted: [-app <ini>] -osint -url <value>, nothing else, and
+            // the value never itself a flag (a crafted link can't add any).
+            string[] head = new string[osint];
+            Array.Copy(args, head, osint);
+            bool headOk = osint == 0 || (osint == 2 && IsFlag(args[0], "app"));
+            if (!headOk || args.Length != osint + 3 || !IsFlag(args[osint + 1], "url") ||
+                args[osint + 2].Length == 0 || args[osint + 2][0] == '-')
+            {
+                return 1;
+            }
+            var safe = new string[head.Length + 2];
+            head.CopyTo(safe, 0);
+            safe[head.Length] = "-url";
+            safe[head.Length + 1] = args[osint + 2];
+            args = safe;
         }
         var line = new StringBuilder();
         if (Array.IndexOf(args, "-app") < 0)
