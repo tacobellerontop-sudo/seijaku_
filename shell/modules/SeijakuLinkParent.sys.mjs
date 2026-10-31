@@ -8,7 +8,7 @@ export class SeijakuLinkParent extends JSWindowActorParent {
       return;
     }
     let browser = this.browsingContext.top.embedderElement;
-    let win = browser?.ownerGlobal;
+    let win = browser?.ownerDocument?.defaultView;
     // The page's principal comes from this side, never from the page:
     // links open with what the page itself may load, nothing more.
     message.data.principal = this.manager.documentPrincipal;

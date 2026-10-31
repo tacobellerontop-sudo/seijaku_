@@ -149,10 +149,10 @@ export class SeijakuFullscreenParent extends JSWindowActorParent {
       if (this.waitingForChildExitFullscreen || this.waitingForChildEnterFullscreen) {
         this.waitingForChildExitFullscreen = false;
         this.waitingForChildEnterFullscreen = false;
-        this._cleanupFullscreenStateAndResumeChromeUI(browser.ownerGlobal);
+        this._cleanupFullscreenStateAndResumeChromeUI(browser.ownerDocument.defaultView);
       }
       if (this != this.requestOrigin) {
-        this.removeListeners(browser.ownerGlobal);
+        this.removeListeners(browser.ownerDocument.defaultView);
       }
       return;
     }
@@ -181,7 +181,7 @@ export class SeijakuFullscreenParent extends JSWindowActorParent {
     if (!browser) {
       return;
     }
-    let window = browser.ownerGlobal;
+    let window = browser.ownerDocument.defaultView;
     switch (message.name) {
       case "DOMFullscreen:Request": {
         // Keyboard lock stays off: Esc must always leave fullscreen.
@@ -241,9 +241,9 @@ export class SeijakuFullscreenParent extends JSWindowActorParent {
       case "MozDOMFullscreen:Entered": {
         // The target is the <browser> the window made fullscreen, or,
         // for an in-process page, an element inside it.
-        let browser = event.target.ownerGlobal == window
+        let browser = event.target.ownerDocument.defaultView == window
           ? event.target
-          : event.target.ownerGlobal.docShell.chromeEventHandler;
+          : event.target.ownerDocument.defaultView.docShell.chromeEventHandler;
         enterDomFullscreen(window, browser, this);
         this.updateFullscreenWindowReference(window);
         break;
