@@ -322,6 +322,8 @@
       Seijaku.closeTab(fs);
     });
 
+    await pdfChecks();
+
     await check("history, bookmark and session are saved atomically", async () => {
       Seijaku.selectTab(tab);
       Seijaku.toggleBookmark();
@@ -342,6 +344,86 @@
     });
 
     await extensionChecks();
+  }
+
+  /* PDFs: they open in the engine's PDF viewer (pdf.js) — typed, from
+     a link in a page, and from an old seijaku:pdf address — instead of
+     downloading, and Seijaku's find, zoom and save keys reach it. */
+  async function pdfChecks() {
+    const PDF = BASE + "hello.pdf";
+    let { Downloads } = ChromeUtils.importESModule("resource://gre/modules/Downloads.sys.mjs");
+    let list = await Downloads.getList(Downloads.ALL);
+    let downloadsBefore = (await list.getAll()).length;
+
+    async function viewerShows(tab, what) {
+      await waitFor(`${what} in the PDF viewer`, () => Seijaku.pdfActor(tab) && tab.browser.currentURI?.spec == PDF, 30000);
+      // The viewer names the tab after the file once the PDF has loaded.
+      await waitFor(`${what}: the PDF to load`, () => /hello\.pdf/i.test(tab.title || ""), 30000);
+    }
+
+    let pdf;
+    await check("a typed PDF address opens in the PDF viewer", async () => {
+      pdf = Seijaku.openTab(PDF);
+      Seijaku.selectTab(pdf);
+      await viewerShows(pdf, "a typed PDF");
+      return `${pdf.title} (${pdf.browser.remoteType})`;
+    });
+
+    await check("find searches the PDF", async () => {
+      let bar = await waitFor("the viewer to take the find bar", () => Seijaku.pdfFindBar(pdf));
+      let results = [];
+      let original = bar.updateControlState.bind(bar);
+      bar.updateControlState = (result, previous) => {
+        results.push(result);
+        original(result, previous);
+      };
+      let input = document.getElementById("find-input");
+      Seijaku.showFindBar();
+      input.value = "Seijaku";
+      Seijaku.findInPage(false);
+      await waitFor("a find result", () => results.some(r => r == Ci.nsITypeAheadFind.FIND_FOUND || r == Ci.nsITypeAheadFind.FIND_WRAPPED));
+      results.length = 0;
+      input.value = "zzqqxx";
+      Seijaku.findInPage(false);
+      await waitFor("a not-found result", () => results.includes(Ci.nsITypeAheadFind.FIND_NOTFOUND));
+      Seijaku.hideFindBar();
+      bar.updateControlState = original;
+    });
+
+    await check("zoom goes to the PDF viewer", () => {
+      Seijaku.zoom(0.1);
+      Seijaku.zoomReset();
+      let zoom = pdf.browser.browsingContext.fullZoom;
+      assert(zoom == 1, `the page itself was zoomed (${zoom})`);
+    });
+
+    await check("a PDF link clicked in a page opens in the PDF viewer", async () => {
+      let page = await openAndLoad("pdf-link.html");
+      let tries = 0;
+      await waitFor("the link to open the PDF", () => {
+        if (page.browser.currentURI?.spec != PDF && tries++ % 20 == 0) {
+          pageMouse(page.browser, [["mousedown", 40, 40, 0], ["mouseup", 40, 40, 0]]);
+        }
+        return page.browser.currentURI?.spec == PDF;
+      }, 30000);
+      await viewerShows(page, "a clicked PDF link");
+      Seijaku.closeTab(page);
+    });
+
+    await check("an old seijaku:pdf address opens the PDF itself", async () => {
+      let old = Seijaku.openTab("seijaku:pdf#url=" + encodeURIComponent(PDF));
+      await viewerShows(old, "an old seijaku:pdf address");
+      Seijaku.closeTab(old);
+    });
+
+    await check("no PDF went to the downloads", async () => {
+      let added = (await list.getAll()).slice(downloadsBefore).map(d => d.source.url);
+      assert(!added.length, added.join(", "));
+    });
+
+    if (pdf) {
+      Seijaku.closeTab(pdf);
+    }
   }
 
   /* Extensions: a test extension (tests/smoke/extension, installed as

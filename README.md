@@ -61,8 +61,9 @@ Seijaku leaves out is everything around it that you didn't ask for.
 - **Bookmarks and history**, with import, folders and search.
 - **Private windows** (Ctrl+Shift+N) that keep no history.
 - **Reader view** that turns a cluttered article into clean text.
-- **A built-in PDF viewer** where you can draw and leave notes, then
-  save an annotated copy.
+- **A built-in PDF viewer** (Firefox's own) for PDF links, typed
+  addresses and files, where you can draw, highlight and add text, then
+  save a copy with your changes.
 - **Downloads**, **find in page**, **zoom**, **print** and **save page**.
 - **Right-click menus** for pages, links, images, video, text and tabs.
 - **Full-screen video**, mouse back and forward buttons, and
