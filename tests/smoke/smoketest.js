@@ -249,11 +249,37 @@
       await waitFor("the popup to close", () => !popupBrowser());
     }
 
+    // Engine errors behind an extension's "An unexpected error occurred"
+    // only reach the console service; copy them into the log.
+    Services.console.registerListener({
+      observe(message) {
+        let text = message.message ?? "";
+        if (message instanceof Ci.nsIScriptError) {
+          text = `${message.errorMessage} (${message.sourceName}:${message.lineNumber})`;
+          if (message.stack) {
+            text += `\n${message.stack}`;
+          }
+        }
+        if (/extension|ext-|seijaku/i.test(text)) {
+          dump(`Seijaku smoke console: ${text.replace(/\n/g, " | ")}\n`);
+        }
+      },
+    });
+
     await check("an extension's background page starts and its button appears", async () => {
       let dir = Cc["@mozilla.org/file/local;1"].createInstance(Ci.nsIFile);
       dir.initWithPath(Services.prefs.getStringPref("seijaku.smoke.extension"));
       await AddonManager.installTemporaryAddon(dir);
       await waitFor("the extension's button", () => document.getElementById(TEST_BUTTON));
+      // The same badge call as the background page's, from here, so a
+      // failure shows its real error.
+      try {
+        const { ExtensionParent } = ChromeUtils.importESModule("resource://gre/modules/ExtensionParent.sys.mjs");
+        let extension = ExtensionParent.GlobalManager.getExtension("smoke-test@seijaku.browser");
+        ExtensionParent.apiManager.global.browserActionFor(extension).setProperty(null, "badgeText", "on");
+      } catch (e) {
+        throw new Error(`direct badge call: ${e} | ${String(e?.stack).replace(/\n/g, " | ")}`);
+      }
       await waitFor("the badge the background page sets", () => badgeOf(TEST_BUTTON) == "on");
     });
 

@@ -92,6 +92,7 @@ const PromptObserver = {
       data.reject?.();
       data.resolve?.(false);
       data.cancel?.();
+      data.callback?.();
       return;
     }
     switch (topic) {
@@ -176,6 +177,8 @@ const PromptObserver = {
         break;
       case "webextension-install-notify":
         shell.showMessage(`${data.addon?.name || "The extension"} was added`);
+        // The install (and the site's install button) waits for this.
+        data.callback?.();
         break;
     }
   },
