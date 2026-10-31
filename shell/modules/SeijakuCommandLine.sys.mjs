@@ -2,28 +2,44 @@
    app, or a file opened with Seijaku from Explorer ("Open with", or
    Seijaku as the default app for PDFs and web pages).
 
-   Windows starts seijaku.exe with the address or the file's path,
-   usually as `-osint -url <address or path>`. On a cold start the
-   shell's first window reads that command line itself (launchURL in
-   seijaku.js). When Seijaku already runs, Gecko hands the command line
-   to the running instance, and only a command line handler sees it:
-   Firefox's lives in its dropped front end, and the engine's own
-   default handler just brings the window forward. This module is
-   Seijaku's handler. It runs before the engine's ("m-" sorts before
-   "x-default"), opens each address or file as a tab in the main
-   window, and stops the default handler. It lives in a module, not in
-   a window, so closing the window that registered it can't break it. */
+   Windows starts seijaku.exe with the address or the file's path, as
+   `-osint -url <address or path>`. The engine's built-in handlers
+   (Firefox's, compiled into the engine) take -url for themselves and
+   try to open a Firefox window that Seijaku doesn't have, so the
+   launcher passes the value on as `-seijaku-open <value>`, which they
+   ignore, and also in the SEIJAKU_OPEN environment variable:
+
+   - On a cold start no handler of Seijaku's exists yet (this module is
+     registered by the first window), so that window reads SEIJAKU_OPEN
+     (launchURLs below) and clears it.
+   - When Seijaku already runs, the new engine process hands its command
+     line to the running one, where this module's handler opens each
+     address or file as a tab in the main window. It runs before the
+     engine's default handler ("m-" sorts before "x-default"), takes the
+     arguments it used so nothing else acts on them, and stops the
+     default handler from just bringing the window forward. It lives in
+     a module, not in a window, so closing the window that registered
+     it can't break it. */
 
 const CONTRACT = "@seijaku/command-line-handler;1";
 const CID = Components.ID("{4c1f7a52-9b3e-4e0d-8f6a-2d5c7e9b1a63}");
 
 // Flags whose next argument is not something to open.
 const FLAGS_WITH_VALUE = new Set(["app", "profile", "p", "remote-debugging-port", "marionette-port"]);
+// The flag the launcher passes an address or file under.
+const OPEN_FLAG = "seijaku-open";
+const OPEN_ENV = "SEIJAKU_OPEN";
 
 /** A file path as a file:/// address, when the file exists. */
 function fileURL(cmdLine, value) {
   try {
-    let file = cmdLine.resolveFile(value);
+    let file;
+    if (cmdLine) {
+      file = cmdLine.resolveFile(value);
+    } else {
+      file = Cc["@mozilla.org/file/local;1"].createInstance(Ci.nsIFile);
+      file.initWithPath(value);
+    }
     if (file?.exists() && !file.isDirectory()) {
       return Services.io.newFileURI(file).spec;
     }
@@ -66,6 +82,13 @@ export function urlsFromCommandLine(cmdLine) {
       let arg = cmdLine.getArgument(i);
       if (/^--?[\w-]+$/.test(arg)) {
         let flag = arg.replace(/^--?/, "").toLowerCase();
+        if (flag == OPEN_FLAG && i + 1 < cmdLine.length) {
+          let url = openable(cmdLine, cmdLine.getArgument(++i));
+          if (url) {
+            urls.push(url);
+          }
+          continue;
+        }
         if (FLAGS_WITH_VALUE.has(flag)) {
           i++;
         }
@@ -77,6 +100,24 @@ export function urlsFromCommandLine(cmdLine) {
       }
     }
   } catch (e) { /* nothing usable */ }
+  return urls;
+}
+
+/** What a cold start was asked to open (from the launcher's
+    SEIJAKU_OPEN), taken once: the variable is cleared, so a restart
+    (an update) or a later window doesn't open it again. */
+export function takeLaunchURLs() {
+  let urls = [];
+  try {
+    let value = Services.env.get(OPEN_ENV);
+    if (value) {
+      Services.env.set(OPEN_ENV, "");
+      let url = openable(null, value);
+      if (url) {
+        urls.push(url);
+      }
+    }
+  } catch (e) { /* nothing to open */ }
   return urls;
 }
 
@@ -115,6 +156,9 @@ const handler = {
     if (!win || !urls.length) {
       return; // the engine's handler brings a window forward
     }
+    // Taken: the engine's own handlers would try to open them in a
+    // Firefox window.
+    cmdLine.removeArguments(0, cmdLine.length - 1);
     cmdLine.preventDefault = true;
     let tab = null;
     for (let url of urls) {
@@ -143,4 +187,4 @@ export function register() {
   Services.catMan.addCategoryEntry("command-line-handler", "m-seijaku", CONTRACT, false, true);
 }
 
-export const SeijakuCommandLine = { register, urlsFromCommandLine, handler, CONTRACT };
+export const SeijakuCommandLine = { register, urlsFromCommandLine, takeLaunchURLs, handler, CONTRACT };

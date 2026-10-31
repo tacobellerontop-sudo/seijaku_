@@ -2915,10 +2915,11 @@ var Seijaku = {
 
   // -------------------------------------------------------------- launched links
   //
-  // A cold start's command line (a default-browser link, a file opened
-  // with Seijaku from Explorer) is read here by the first window.
-  // Later ones reach the running Seijaku through its command line
-  // handler (SeijakuCommandLine.sys.mjs), which opens them as tabs.
+  // A cold start's address or file (a default-browser link, a file
+  // opened with Seijaku from Explorer) is read here by the first window,
+  // from what seijaku.exe passed on. Later ones reach the running
+  // Seijaku through its command line handler (SeijakuCommandLine.sys.mjs),
+  // which opens them as tabs.
 
   /** The first address or file a command line asks to open, or null. */
   launchURLFromCommandLine(cmdLine) {
@@ -2927,6 +2928,11 @@ var Seijaku = {
 
   /** The address or file this window was launched with, or null. */
   launchURL() {
+    // A file or link from Windows, passed on by seijaku.exe.
+    let launched = SeijakuCommandLine.takeLaunchURLs();
+    if (launched.length) {
+      return launched[0];
+    }
     try {
       for (let arg of window.arguments || []) {
         if (arg instanceof Ci.nsICommandLine) {

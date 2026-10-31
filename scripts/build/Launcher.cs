@@ -12,7 +12,11 @@
 // only as the very first argument, followed by nothing but -url and its
 // one value, and quits on the spot otherwise (exit code 127), so it can
 // never be combined with -app. The launcher makes the same safety check
-// itself and then passes `-app <ini> -url <value>` without -osint.
+// itself and passes the value as `-seijaku-open <value>` (Firefox's
+// handlers, built into the engine, take -url and try to open a Firefox
+// window), and in the SEIJAKU_OPEN environment variable, which is how the
+// first window of a cold start finds it. A single file dropped on
+// seijaku.exe is passed on the same way.
 using System;
 using System.Diagnostics;
 using System.IO;
@@ -57,6 +61,7 @@ static class Launcher
             MessageBox(IntPtr.Zero, "Seijaku can't find firefox.exe next to seijaku.exe. Reinstall Seijaku.", "Seijaku", 0x10);
             return 1;
         }
+        string open = null;
         int osint = Array.FindIndex(args, a => IsFlag(a, "osint"));
         if (osint >= 0)
         {
@@ -72,9 +77,20 @@ static class Launcher
             }
             var safe = new string[head.Length + 2];
             head.CopyTo(safe, 0);
-            safe[head.Length] = "-url";
+            safe[head.Length] = "-seijaku-open";
             safe[head.Length + 1] = args[osint + 2];
+            open = args[osint + 2];
             args = safe;
+        }
+        else if (args.Length == 1 && args[0].Length > 0 && args[0][0] != '-')
+        {
+            open = args[0];
+            args = new[] { "-seijaku-open", open };
+        }
+        if (open != null && File.Exists(open))
+        {
+            open = Path.GetFullPath(open);
+            args[args.Length - 1] = open;
         }
         var line = new StringBuilder();
         if (Array.IndexOf(args, "-app") < 0)
@@ -87,6 +103,8 @@ static class Launcher
             line.Append(Quote(arg));
         }
         var info = new ProcessStartInfo(engine, line.ToString()) { UseShellExecute = false };
+        info.EnvironmentVariables.Remove("SEIJAKU_OPEN");
+        if (open != null) info.EnvironmentVariables["SEIJAKU_OPEN"] = open;
         using (var p = Process.Start(info))
         {
             // -wait-for-browser (kept from Breached's launcher) waits for the browser to close.

@@ -466,13 +466,14 @@
       await IOUtils.write(path, new Uint8Array(bytes));
       let { SeijakuCommandLine } = ChromeUtils.importESModule("resource://seijaku/SeijakuCommandLine.sys.mjs");
       let iniPath = PathUtils.join(PathUtils.tempDir, "x", "application.ini");
-      let first = Cu.createCommandLine(["-app", iniPath, "-url", path], null, Ci.nsICommandLine.STATE_INITIAL_LAUNCH);
+      let first = Cu.createCommandLine(["-app", iniPath, "-seijaku-open", path], null, Ci.nsICommandLine.STATE_INITIAL_LAUNCH);
       let urls = SeijakuCommandLine.urlsFromCommandLine(first);
       assert(urls.length == 1 && urls[0].startsWith("file:///") && urls[0].endsWith("hello%20world.pdf"), JSON.stringify(urls));
-      let remote = Cu.createCommandLine(["-url", path], null, Ci.nsICommandLine.STATE_REMOTE_AUTO);
+      let remote = Cu.createCommandLine(["-app", iniPath, "-seijaku-open", path], null, Ci.nsICommandLine.STATE_REMOTE_AUTO);
       let before = Seijaku.tabs.length;
       Cc[SeijakuCommandLine.CONTRACT].getService(Ci.nsICommandLineHandler).handle(remote);
       assert(remote.preventDefault, "the handler left it to the engine");
+      assert(remote.length == 0, "the handler left arguments for the engine's handlers");
       assert(Seijaku.tabs.length == before + 1, "no tab opened");
       let tab = Seijaku.selected;
       await waitFor("the file in the PDF viewer", () => Seijaku.pdfActor(tab) && tab.browser.currentURI?.spec == urls[0], 30000);
