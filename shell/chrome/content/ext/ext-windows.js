@@ -14,7 +14,7 @@ var { ExtensionError } = ExtensionUtils;
 /** A popup window for windows.create: a Seijaku window in popup mode
     (see isPopup in seijaku.js), sized and placed as asked, or centred
     on the front window. Resolves once its page has started loading. */
-async function openPopupWindow(createData, urls, incognito, principalFor) {
+async function openPopupWindow(windowManager, createData, urls, incognito, principalFor) {
   let opener = windowTracker.topTabWindow(incognito) || windowTracker.topWindow;
   if (!opener) {
     throw new ExtensionError("No Seijaku window is open");
@@ -181,7 +181,7 @@ this.windows = class extends ExtensionAPIPersistent {
                   privateBrowsingId: incognito ? 1 : 0,
                 });
           if (createData.type && createData.type != "normal") {
-            return openPopupWindow(createData, urls, incognito, principalFor);
+            return openPopupWindow(windowManager, createData, urls, incognito, principalFor);
           }
           let window = windowTracker.topTabWindow(incognito);
           let shell = shellOf(window);
