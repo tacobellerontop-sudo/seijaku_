@@ -118,7 +118,7 @@ const SESSION_FILE = "seijaku-session.json";
 const DATA_FILE = "seijaku-data.json";
 const HISTORY_LIMIT = 1000;
 const MESSAGE_MS = 4000;
-const SEIJAKU_VERSION = "1.0.5";
+const SEIJAKU_VERSION = "1.0.6";
 const UPDATE_REPO = "tacobellerontop-sudo/seijaku_";
 const UPDATE_CHECK_MS = 24 * 60 * 60 * 1000;
 // Session and data writes are batched: a page load reports its
@@ -419,6 +419,7 @@ var Seijaku = {
     window.addEventListener("mousemove", this);
     window.addEventListener("unload", this);
     window.addEventListener("DOMWindowClose", event => this.onWindowClose(event), true);
+    window.addEventListener("DOMUpdateBlockedPopups", event => this.onPopupBlocked(event), true);
     Keys.install();
     // A link clicked elsewhere while Seijaku runs arrives as a remote
     // command line; without a handler of its own, the shell learns
@@ -994,10 +995,13 @@ var Seijaku = {
       // The opener's tab, so a closing popup can go back to it.
       let openerBrowser = params?.openerBrowser || openWindowInfo?.parent?.top?.embedderElement || null;
       let opener = this.tabs.find(t => t.browser && t.browser == openerBrowser) || null;
+      // The new page starts in the process of the frame that opened
+      // it. That is often not the tab's own: "Sign in with Google" is
+      // a button inside an accounts.google.com frame on the site.
       let remoteType;
       if (openWindowInfo) {
         remoteType = openWindowInfo.isRemote
-          ? openerBrowser?.remoteType || openWindowInfo.parent?.top?.currentRemoteType || undefined
+          ? openWindowInfo.parent?.currentRemoteType || openerBrowser?.remoteType || undefined
           : E10SUtils.NOT_REMOTE;
       }
       let tab = this.openTab(url || "about:blank", {
@@ -1016,6 +1020,35 @@ var Seijaku = {
       console.error("Seijaku: a page's new window failed to open", e);
       return null;
     }
+  },
+
+  /** The engine's pop-up blocker stopped a page's new window (one
+      opened without a click, or too long after one). Firefox shows a
+      bar for this; here the message line says so and opens it on a
+      click, instead of the page silently doing nothing. */
+  onPopupBlocked(event) {
+    let browser = event.target;
+    let tab = this.tabs.find(t => t.browser && t.browser == browser);
+    let blocker = browser?.popupAndRedirectBlocker;
+    if (!tab || !blocker) {
+      return;
+    }
+    let count = 0;
+    try {
+      count = blocker.getBlockedPopupCount();
+    } catch (e) { /* count unknown: say nothing */ }
+    if (!count) {
+      return;
+    }
+    if (tab !== this.selected) {
+      return;
+    }
+    this.showMessage(count == 1 ? "This page tried to open a pop-up" : `This page tried to open ${count} pop-ups`, "info", {
+      label: count == 1 ? "Open it" : "Open them",
+      run: () => {
+        blocker.unblockAllPopups().catch(e => console.error("Seijaku: unblocking pop-ups failed", e));
+      },
+    });
   },
 
   /** A page closed itself (window.close() in a page window.open made):
@@ -4540,13 +4573,26 @@ var Seijaku = {
 
   // -------------------------------------------------------------- messages
 
-  showMessage(text, level = "info") {
+  /** Shows a line at the bottom for a few seconds. With action
+      ({ label, run }) it carries one button, and stays a little
+      longer so there is time to press it. */
+  showMessage(text, level = "info", action = null) {
     let el = document.getElementById("message");
     el.textContent = text;
     el.setAttribute("level", level);
+    if (action) {
+      let button = document.createElement("button");
+      button.className = "message-action";
+      button.textContent = action.label;
+      button.addEventListener("click", () => {
+        this.hideMessage();
+        action.run();
+      });
+      el.append(button);
+    }
     el.hidden = false;
     clearTimeout(this._messageTimer);
-    this._messageTimer = setTimeout(() => this.hideMessage(), MESSAGE_MS);
+    this._messageTimer = setTimeout(() => this.hideMessage(), action ? MESSAGE_MS * 3 : MESSAGE_MS);
   },
 
   hideMessage() {

@@ -8,7 +8,7 @@
   if (window.opener) {
     document.title = "child:opener";
     window.opener.postMessage("hello-" + via, "*");
-    if (via == "open") {
+    if (via == "open" || via == "frame") {
       setTimeout(() => window.close(), 500);
     }
   } else {

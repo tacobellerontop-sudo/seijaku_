@@ -800,6 +800,19 @@ body {
   height: 1px;
   background: var(--accent);
 }
+#message .message-action {
+  flex: none;
+  padding: 1px 10px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+#message .message-action:hover {
+  border-color: var(--accent);
+}
 #message[hidden] {
   display: none;
 }

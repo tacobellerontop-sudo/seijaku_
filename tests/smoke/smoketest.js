@@ -350,6 +350,41 @@
       return page.title;
     });
 
+    await check("a sign-in button in another site's frame opens its popup", async () => {
+      let page = await openAndLoad("popup-frame-host.html");
+      let target = "http://localhost:8765/popup-child.html?via=frame";
+      await waitFor("the sign-in frame", () => page.browser.browsingContext.children[0]?.currentWindowGlobal?.documentURI?.spec?.includes("popup-frame.html"));
+      let tries = 0;
+      await waitFor("a tab for the frame's popup", () => {
+        if (!Seijaku.tabs.some(t => t.url == target) && tries++ % 10 == 0) {
+          pageMouse(page.browser, [["mousedown", 40, 40, 0], ["mouseup", 40, 40, 0]]);
+        }
+        return Seijaku.tabs.some(t => t.url == target);
+      });
+      let child = Seijaku.tabs.find(t => t.url == target);
+      assert(child.openerTab === page, "the popup doesn't know its opener's tab");
+      await waitFor("the frame to get the popup's message", () => page.title == "host:hello-frame");
+      await waitFor("the popup to close itself", () => !Seijaku.tabs.includes(child));
+      assert(Seijaku.selected === page, "closing the popup didn't return to its page");
+      let remote = page.browser.browsingContext.children[0]?.currentWindowGlobal?.domProcess?.remoteType;
+      Seijaku.closeTab(page);
+      return `frame in ${remote}`;
+    });
+
+    await check("a blocked pop-up is offered on the message line", async () => {
+      let page = await openAndLoad("popup-noclick.html");
+      await waitFor("the page to try", () => page.title.startsWith("noclick:"));
+      assert(page.title == "noclick:blocked", `the pop-up was not blocked (${page.title})`);
+      let button = await waitFor("the message line's Open button", () => document.querySelector("#message:not([hidden]) .message-action"));
+      let text = document.getElementById("message").textContent;
+      let target = BASE + "popup-child.html?via=noclick";
+      button.click();
+      await waitFor("the pop-up's tab", () => Seijaku.tabs.some(t => t.url == target));
+      Seijaku.closeTab(Seijaku.tabs.find(t => t.url == target));
+      Seijaku.closeTab(page);
+      return text;
+    });
+
     await check("a page can go full screen and back", async () => {
       let fs = Seijaku.openTab(BASE + "fullscreen.html");
       await waitFor("the page to go full screen", () => fs.title != "fs:waiting" && fs.title.startsWith("fs:"));

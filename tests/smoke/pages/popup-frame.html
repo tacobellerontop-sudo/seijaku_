@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>frame</title>
+<style>body { margin: 0; } button { display: block; width: 400px; height: 200px; border: 0; background: #aca; }</style>
+</head>
+<body>
+<button id="open">Sign in (a button in another site's frame)</button>
+<script>
+  document.getElementById("open").addEventListener("click", () => {
+    let w = window.open("http://localhost:8765/popup-child.html?via=frame", "signin", "width=420,height=520");
+    parent.postMessage(w ? "frame-opened" : "frame-blocked", "*");
+  });
+  // The popup's message comes here; the frame passes it to the page.
+  window.addEventListener("message", event => {
+    if (event.source != parent) {
+      parent.postMessage(event.data, "*");
+    }
+  });
+</script>
+</body>
+</html>

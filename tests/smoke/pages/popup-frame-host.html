@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>host:waiting</title>
+<style>body { margin: 0; } iframe { display: block; width: 400px; height: 200px; border: 0; }</style>
+</head>
+<body>
+<!-- Like "Sign in with Google": the button lives in a frame from
+     another site, and that frame opens the popup. -->
+<iframe src="http://localhost:8765/popup-frame.html"></iframe>
+<script>
+  window.addEventListener("message", event => {
+    document.title = "host:" + event.data;
+  });
+</script>
+</body>
+</html>

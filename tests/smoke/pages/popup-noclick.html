@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>noclick</title></head>
+<body>
+<p>This page opens a pop-up without a click, which the pop-up blocker stops.</p>
+<script>
+  window.addEventListener("load", () => {
+    let w = window.open("popup-child.html?via=noclick", "_blank", "width=420,height=520");
+    document.title = w ? "noclick:opened" : "noclick:blocked";
+  });
+</script>
+</body>
+</html>
