@@ -290,6 +290,13 @@
           `checkGet=${apiManager._checkGetAPI("browserAction", extension, "addon_parent")} ` +
           `schemaPerm=${Schemas.checkPermissions("browserAction", extension)} ` +
           `module=${JSON.stringify(apiManager.getModule("browserAction"))}`);
+        try {
+          let api = apiManager.getAPI("browserAction", extension, "addon_parent");
+          diag += ` action=${!!api.action}`;
+          diag += ` getAPI=${Object.keys(api.getAPI(ctx))}`;
+        } catch (e) {
+          diag += ` getAPI threw: ${e} | ${String(e?.stack).replace(/\n/g, " | ")}`;
+        }
       } catch (e) {
         throw new Error(`direct badge call: ${e} | ${String(e?.stack).replace(/\n/g, " | ")}`);
       }
