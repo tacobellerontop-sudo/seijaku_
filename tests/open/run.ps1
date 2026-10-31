@@ -6,7 +6,7 @@
 #   1. Seijaku not running: the PDF must open as a tab on start.
 #   2. Seijaku running: a second PDF must open as a tab in that Seijaku.
 #
-# Before 1.0.3 the commands put -app before -osint, which the engine
+# Before 1.0.4 the commands put -app before -osint, which the engine
 # refuses (it quits at once with exit code 127), so nothing opened.
 # The check reads Seijaku's saved session for the files' addresses.
 #
