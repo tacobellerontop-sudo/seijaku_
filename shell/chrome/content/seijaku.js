@@ -127,7 +127,7 @@ const SESSION_FILE = "seijaku-session.json";
 const DATA_FILE = "seijaku-data.json";
 const HISTORY_LIMIT = 1000;
 const MESSAGE_MS = 4000;
-const SEIJAKU_VERSION = "1.0.4";
+const SEIJAKU_VERSION = "1.0.6";
 const UPDATE_REPO = "tacobellerontop-sudo/seijaku_";
 const UPDATE_CHECK_MS = 24 * 60 * 60 * 1000;
 // Session and data writes are batched: a page load reports its
@@ -476,6 +476,7 @@ var Seijaku = {
       this._sleepTimer = setInterval(() => this.sleepIdleTabs(), 60 * 1000);
     }
     if (!this.isPrivate && !this.isPopup) {
+      this.cleanUpOldUpdates();
       this.maybeCheckForUpdates();
     }
     this._initDone = true;
@@ -516,10 +517,10 @@ var Seijaku = {
   //
   // Auto-update, the small way: once a day at most, ask GitHub for the
   // latest release. If there is a newer one, download the installer in
-  // the background and stage it; quitting the browser then hands it to
-  // a small hidden PowerShell script that waits for this install's
-  // processes to exit (so Inno is never fighting a running browser),
-  // installs silently, and starts Seijaku again. The Settings page has an Update button that does the same
+  // the background and stage it; quitting the browser then starts that
+  // installer hidden, which waits for this install's processes to exit
+  // (so Inno is never fighting a running browser), installs silently,
+  // and starts Seijaku again. The Settings page has an Update button that does the same
   // thing immediately, by flipping the update.installNow pref. The
   // portable build has no installer to run, so it just opens the
   // release page.
@@ -590,70 +591,67 @@ var Seijaku = {
   },
 
   async downloadAndStageUpdate(pending) {
-    let tmp = Services.dirsvc.get("TmpD", Ci.nsIFile);
-    let installerFile = tmp.clone();
+    let installerFile = Services.dirsvc.get("TmpD", Ci.nsIFile);
     installerFile.append(`SeijakuSetup-${pending.version}.exe`);
     await this.downloadToFile(pending.url, installerFile);
-    let script = tmp.clone();
-    script.append("seijaku-update.ps1");
-    let appDir = Services.dirsvc.get("GreD", Ci.nsIFile).path;
-    await this.writeTextFile(script, this.updaterScript(installerFile.path, appDir));
-    this._stagedUpdate = script.path;
+    // A "downloaded from the internet" mark would make Windows ask
+    // before running the installer. Firefox's download manager adds
+    // one and this download shouldn't have one, but make sure.
+    try {
+      await IOUtils.remove(installerFile.path + ":Zone.Identifier", { ignoreAbsent: true });
+    } catch (e) { /* no mark, or nothing to remove */ }
+    this._stagedUpdate = installerFile.path;
   },
 
-  // The updater waits for Seijaku to quit before installing over it,
-  // installs silently, and starts Seijaku again. It runs hidden, so
-  // nothing but Seijaku itself coming back is visible.
-  //
-  // What it waits for is every process running from this install
-  // folder: the engine, its content processes, and any background
-  // task the engine starts at shutdown. 0.2.10 and earlier waited for
-  // any firefox.exe at all, so a real Firefox left open (or anything
-  // else named firefox.exe) kept the update waiting in a terminal
-  // window forever. Processes from this folder that are still there a
-  // minute after quitting are stuck, and are ended so the update can
-  // go ahead. The installer writes a log to %TEMP%\seijaku-update.log.
-  updaterScript(installerPath, appDir) {
-    let quote = s => "'" + String(s).replace(/'/g, "''") + "'";
-    return [
-      "$ErrorActionPreference = 'Continue'",
-      "$dir = " + quote(appDir),
-      "$setup = " + quote(installerPath),
-      "$log = Join-Path $env:TEMP 'seijaku-update.log'",
-      "function Get-SeijakuProcess {",
-      "  @(Get-Process -ErrorAction SilentlyContinue | Where-Object {",
-      "    $path = try { $_.Path } catch { $null }",
-      "    $path -and $path.StartsWith($dir + '\\', [StringComparison]::OrdinalIgnoreCase)",
-      "  })",
-      "}",
-      "$deadline = (Get-Date).AddSeconds(60)",
-      "while ((Get-SeijakuProcess).Count) {",
-      "  if ((Get-Date) -gt $deadline) {",
-      "    Get-SeijakuProcess | Stop-Process -Force -ErrorAction SilentlyContinue",
-      "    Start-Sleep -Seconds 2",
-      "    break",
-      "  }",
-      "  Start-Sleep -Milliseconds 500",
-      "}",
-      "Start-Process -FilePath $setup -Wait -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', \"/LOG=`\"$log`\"\"",
-      "Start-Process -FilePath (Join-Path $dir 'seijaku.exe') -ArgumentList '-app', ('\"' + (Join-Path $dir 'seijaku\\application.ini') + '\"')",
-      "Remove-Item -LiteralPath $setup -Force -ErrorAction SilentlyContinue",
-      "Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue",
-      "",
-    ].join("\r\n");
+  // The update runs the installer itself, hidden, with no script in
+  // between (1.0.3 and earlier went through a PowerShell script, which
+  // Windows could stop to ask about). /update=1 tells the installer it
+  // was started from here: it waits until every process running from
+  // this install folder has exited (a real Firefox left open doesn't
+  // count), ends any still there after a minute, installs silently,
+  // and starts Seijaku again. It writes a log to
+  // %TEMP%\seijaku-update.log. Seijaku deletes the installer from
+  // Temp on a later start (cleanUpOldUpdates).
+  updaterArguments() {
+    let log = Services.dirsvc.get("TmpD", Ci.nsIFile);
+    log.append("seijaku-update.log");
+    return ["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/update=1", `/LOG=${log.path}`];
   },
 
-  launchUpdater(scriptPath) {
-    let powershell = Services.dirsvc.get("WinD", Ci.nsIFile);
-    for (let part of ["System32", "WindowsPowerShell", "v1.0", "powershell.exe"]) {
-      powershell.append(part);
-    }
+  launchUpdater(installerPath) {
+    let installer = Cc["@mozilla.org/file/local;1"].createInstance(Ci.nsIFile);
+    installer.initWithPath(installerPath);
     let process = Cc["@mozilla.org/process/util;1"].createInstance(Ci.nsIProcess);
-    process.init(powershell);
+    process.init(installer);
     try {
       process.startHidden = true;
-    } catch (e) { /* -WindowStyle Hidden below still hides it */ }
-    process.run(false, ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File", scriptPath], 8);
+    } catch (e) { /* /VERYSILENT shows no window anyway */ }
+    let args = this.updaterArguments();
+    process.runw(false, args, args.length);
+  },
+
+  // Leftovers from earlier updates in Temp: the installer that just
+  // ran (it can't delete itself), and 1.0.3's updater script. Runs a
+  // little after startup, once the installer that started this
+  // Seijaku has exited; a file still in use just waits for next time.
+  cleanUpOldUpdates() {
+    setTimeout(async () => {
+      try {
+        let tmp = Services.dirsvc.get("TmpD", Ci.nsIFile).path;
+        for (let path of await IOUtils.getChildren(tmp)) {
+          let name = PathUtils.filename(path);
+          // Not the one a startup check may be downloading right now.
+          let pending = this._pendingUpdate && `SeijakuSetup-${this._pendingUpdate.version}.exe`;
+          let old = (/^SeijakuSetup-[\d.]+\.exe$/i.test(name) && name != pending) ||
+            name.toLowerCase() == "seijaku-update.ps1";
+          if (old) {
+            await IOUtils.remove(path).catch(e => console.warn(`Seijaku: couldn't remove ${path}: ${e}`));
+          }
+        }
+      } catch (e) {
+        console.warn(`Seijaku: tidying up old updates failed: ${e}`);
+      }
+    }, 20 * 1000);
   },
 
   maybeCheckForUpdates() {
@@ -5207,7 +5205,7 @@ var Seijaku = {
         try {
           Services.prefs.removeObserver(PREF, this);
         } catch (e) { /* never registered */ }
-        // A staged update installs now: the updater waits for this
+        // A staged update installs now: the installer waits for this
         // process to be gone, installs silently, and restarts Seijaku.
         if (this._stagedUpdate && !this._updating) {
           try {

@@ -123,9 +123,82 @@ Name: "{autodesktop}\Seijaku"; Filename: "{app}\seijaku.exe"; Parameters: "-app 
 ; finds the shell; without -app there is no Firefox front end left to
 ; fall back to.
 Filename: "{app}\seijaku.exe"; Parameters: "-app ""{app}\seijaku\application.ini"""; Description: "Start Seijaku"; Flags: nowait postinstall skipifsilent
+; In-app updates run this installer straight from Seijaku with
+; /VERYSILENT /update=1, with no script in between (a script made Windows
+; ask for permission). Start Seijaku again once the files are in place.
+Filename: "{app}\seijaku.exe"; Parameters: "-app ""{app}\seijaku\application.ini"""; Flags: nowait; Check: IsUpdate
 
 [Code]
 function IsSeijakuFolder: Boolean;
 begin
   Result := FileExists(ExpandConstant('{app}\seijaku\application.ini'));
+end;
+
+function IsUpdate: Boolean;
+begin
+  Result := ExpandConstant('{param:update|0}') = '1';
+end;
+
+// How many processes run from the install folder: the engine, its
+// content processes, and anything it starts at shutdown. Only this
+// folder counts, so a real Firefox left open never holds up an
+// update. With Kill, those processes are ended as well.
+function SeijakuProcessCount(Kill: Boolean): Integer;
+var
+  Locator, Service, Procs, Proc: Variant;
+  Dir, Path: String;
+  I, N: Integer;
+begin
+  Result := 0;
+  Dir := Lowercase(AddBackslash(ExpandConstant('{app}')));
+  try
+    Locator := CreateOleObject('WbemScripting.SWbemLocator');
+    Service := Locator.ConnectServer('.', 'root\CIMV2');
+    Procs := Service.ExecQuery('SELECT ProcessId, ExecutablePath FROM Win32_Process WHERE ExecutablePath IS NOT NULL');
+    N := Procs.Count;
+    for I := 0 to N - 1 do
+    begin
+      Proc := Procs.ItemIndex(I);
+      Path := Proc.ExecutablePath;
+      Path := Lowercase(Path);
+      if Copy(Path, 1, Length(Dir)) = Dir then
+      begin
+        Result := Result + 1;
+        if Kill then
+          try
+            Proc.Terminate();
+          except
+          end;
+      end;
+    end;
+  except
+    Log('Could not list running processes: ' + GetExceptionMessage);
+    Result := 0;
+  end;
+end;
+
+// For an in-app update, Seijaku starts this installer and then quits.
+// Wait for it to be gone before replacing its files; anything from the
+// install folder still running after a minute is stuck, and is ended.
+// A hand-run install keeps Inno's usual "close these apps" handling.
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  Waited: Integer;
+begin
+  Result := '';
+  if not IsUpdate then
+    Exit;
+  Waited := 0;
+  while SeijakuProcessCount(False) > 0 do
+  begin
+    if Waited >= 60000 then
+    begin
+      Log('Seijaku still running after a minute; ending it');
+      SeijakuProcessCount(True);
+      Sleep(2000);
+      Break;
+    end;
+    Sleep(500);
+    Waited := Waited + 500;
+  end;
 end;

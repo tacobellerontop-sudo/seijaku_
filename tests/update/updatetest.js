@@ -1,8 +1,11 @@
 /* Seijaku update test hook. tests/update/run.ps1 copies this into a
    packaged build next to seijaku.js, builds installers from that build,
    installs one, and starts it with seijaku.test.updateInstaller set to a
-   newer installer. The hook then runs the real Update path (download,
-   updater script, quit) against that local file instead of GitHub.
+   newer installer. The hook then runs the real update path against that
+   local file instead of GitHub. seijaku.test.updateMode picks which:
+   "button" (default) is Settings' Update button (download, run the
+   installer, quit); "quit" stages the download the way the daily check
+   does and then quits like the user closing Seijaku.
    Without the pref it does nothing. It is never part of a release. */
 
 "use strict";
@@ -27,8 +30,16 @@
         url: Services.io.newFileURI(file).spec,
         page: "about:blank",
       };
-      dump(`Seijaku update test: installing ${version} from ${installer}\n`);
-      Seijaku.installUpdate();
+      let mode = Services.prefs.getStringPref("seijaku.test.updateMode", "button");
+      dump(`Seijaku update test: installing ${version} from ${installer} (${mode})\n`);
+      if (mode == "quit") {
+        Seijaku.downloadAndStageUpdate(Seijaku._pendingUpdate).then(() => {
+          dump(`Seijaku update test: staged ${Seijaku._stagedUpdate}, quitting\n`);
+          Services.startup.quit(Ci.nsIAppStartup.eAttemptQuit);
+        }, e => dump(`Seijaku update test: staging failed: ${e}\n`));
+      } else {
+        Seijaku.installUpdate();
+      }
     }, 3000);
   }, { once: true });
 })();
