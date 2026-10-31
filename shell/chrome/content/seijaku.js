@@ -2,8 +2,8 @@
    URL bar (no persistent address line), a home page, settings, tab
    sleeping (auto and on demand), auto-update, find, zoom, themes,
    bookmarks, history, downloads, tab suggestions, a PDF viewer with
-   annotation, permission prompts, private windows, extensions, and a
-   reader view. Nothing else on purpose: no accounts, no services, no
+   annotation, permission prompts, private windows, extensions, a
+   reader view, right-click menus, and page fullscreen. Nothing else on purpose: no accounts, no services, no
    command bar, no sync, no AI. See docs/PLAN.md. */
 
 "use strict";
@@ -55,6 +55,35 @@ try {
   });
 } catch (e) { /* already registered by another window */ }
 
+// The right-click menu, link clicks with a modifier or the middle
+// button, and page fullscreen: each was handled by Firefox's front
+// end, which the packager drops. See the modules for why each exists.
+// Each one only wakes on its own event, so pages cost nothing extra.
+for (let [name, events] of [
+  // After the page's own handlers (the system group), so a page that
+  // draws its own menu can still say so.
+  ["SeijakuContextMenu", { contextmenu: { mozSystemGroup: true } }],
+  // The engine's report of a link click it won't follow by itself.
+  ["SeijakuLink", { chromelinkclick: { capture: true, mozSystemGroup: true } }],
+  ["SeijakuFullscreen", {
+    "MozDOMFullscreen:Request": {},
+    "MozDOMFullscreen:Entered": {},
+    "MozDOMFullscreen:NewOrigin": {},
+    "MozDOMFullscreen:Exit": {},
+    "MozDOMFullscreen:Exited": {},
+  }],
+]) {
+  try {
+    ChromeUtils.registerWindowActor(name, {
+      parent: { esModuleURI: `resource://seijaku/${name}Parent.sys.mjs` },
+      child: { esModuleURI: `resource://seijaku/${name}Child.sys.mjs`, events },
+      messageManagerGroups: ["browsers"],
+      allFrames: true,
+      safeForUntrustedWebProcess: true,
+    });
+  } catch (e) { /* already registered by another window */ }
+}
+
 // Site permission prompts (notifications, camera, microphone): see
 // PermissionPrompt.sys.mjs for why these are registered at runtime.
 try {
@@ -68,13 +97,34 @@ const SESSION_FILE = "seijaku-session.json";
 const DATA_FILE = "seijaku-data.json";
 const HISTORY_LIMIT = 1000;
 const MESSAGE_MS = 4000;
-const SEIJAKU_VERSION = "0.2.12";
+const SEIJAKU_VERSION = "0.2.13";
 const UPDATE_REPO = "tacobellerontop-sudo/seijaku_";
 const UPDATE_CHECK_MS = 24 * 60 * 60 * 1000;
 // Session and data writes are batched: a page load reports its
 // address, title and finish separately, and each used to rewrite the
 // whole file. One write per second at most, flushed on close.
 const SAVE_DELAY_MS = 1000;
+// The strip's buttons, in strip order, for the "which buttons show"
+// setting (seijaku.strip.buttons lists the shown keys). The ones
+// marked off start hidden; everything else shows by default.
+const STRIP_BUTTONS = [
+  { key: "back", id: "nav-back", label: "Back" },
+  { key: "forward", id: "nav-forward", label: "Forward" },
+  { key: "reload", id: "nav-reload", label: "Reload" },
+  { key: "home", id: "nav-home", label: "Home", off: true },
+  { key: "new", id: "tab-new", label: "New tab" },
+  { key: "undo", id: "tab-undo", label: "Reopen closed tab" },
+  { key: "bookmark", id: "bookmark-star", label: "Bookmark this page" },
+  { key: "reader", id: "reader-button", label: "Reader view", off: true },
+  { key: "bookmarks", id: "bookmarks-button", label: "Bookmarks", off: true },
+  { key: "history", id: "history-button", label: "History", off: true },
+  { key: "downloads", id: "downloads-button", label: "Downloads" },
+  { key: "security", id: "sec-lock", label: "Connection security" },
+  { key: "extensions", id: "ext-buttons", label: "Extension buttons" },
+  { key: "permissions", id: "perm-lock", label: "Site permissions" },
+  { key: "menu", id: "strip-menu", label: "Settings" },
+];
+const STRIP_DEFAULT = STRIP_BUTTONS.filter(b => !b.off).map(b => b.key).join(",");
 
 function emptyData() {
   return { bookmarks: [], history: [], permissions: {}, folders: [], downloadsHistory: [] };
@@ -257,6 +307,7 @@ var Seijaku = {
     } catch (e) { /* a System theme just won't follow live */ }
     Services.prefs.addObserver(PREF, this);
     this.initStrip();
+    this.applyStripButtons();
     this.applyTabsPosition();
     this.initBrowserDOMWindow();
     this.applyChromeAutohide();
@@ -279,6 +330,16 @@ var Seijaku = {
     document.getElementById("bookmark-star").addEventListener("click", () => this.toggleBookmark());
     document.getElementById("strip-menu").addEventListener("click", () => this.openPage("settings"));
     document.getElementById("downloads-button").addEventListener("click", () => this.openPage("downloads"));
+    document.getElementById("nav-home").addEventListener("click", () => this.goHome());
+    document.getElementById("reader-button").addEventListener("click", () => this.openReader());
+    document.getElementById("bookmarks-button").addEventListener("click", () => this.openPage("bookmarks"));
+    document.getElementById("history-button").addEventListener("click", () => this.openPage("history"));
+    // Right-click: a tab gets the tab menu; anywhere else on the strip
+    // gets the list of buttons to show or hide.
+    document.getElementById("strip").addEventListener("contextmenu", event => this.onStripContextMenu(event));
+    // The mouse's side buttons (and keyboard media keys) arrive as
+    // AppCommand events; Firefox's front end handled them.
+    window.addEventListener("AppCommand", event => this.onAppCommand(event), true);
     document.getElementById("perm-lock").addEventListener("click", () => this.showPermissionManage());
     document.getElementById("sec-lock").addEventListener("click", () => this.showSiteInfo());
     document.getElementById("edge-strip").addEventListener("mouseenter", () => this.showChrome());
@@ -726,6 +787,9 @@ var Seijaku = {
       }
       if (data == PREF + "tabs.position") {
         this.applyTabsPosition();
+      }
+      if (data == PREF + "strip.buttons") {
+        this.applyStripButtons();
       }
       if (data == PREF + "tabs.icons" && !this.iconsEnabled()) {
         for (let tab of this.tabs) {
@@ -1837,6 +1901,10 @@ var Seijaku = {
 
   /** F11: the window fills the screen and the strip steps away. */
   toggleFullScreen() {
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+      return;
+    }
     window.fullScreen = !window.fullScreen;
   },
 
@@ -1910,6 +1978,547 @@ var Seijaku = {
     for (let tab of this.tabs) {
       this.$tabbar.append(tab.el);
     }
+  },
+
+  // -------------------------------------------------------------- right-click menus
+  //
+  // One XUL menupopup (#seijaku-menu), refilled each time it opens: the
+  // page menu (what the page's SeijakuContextMenu actor reported), the
+  // tab menu, and the strip menu (which buttons show). Nothing is built
+  // until a right-click, and the items are dropped again on close.
+
+  /** Opens the shared menu with these items at a screen point (CSS
+      pixels of this window). Items are {label, run, disabled, checked}
+      or "-" for a line; empty and doubled lines are dropped. */
+  openMenu(items, x, y) {
+    let popup = document.getElementById("seijaku-menu");
+    popup.replaceChildren();
+    for (let item of items) {
+      if (!item) {
+        continue;
+      }
+      if (item == "-") {
+        if (popup.lastElementChild && popup.lastElementChild.localName != "menuseparator") {
+          popup.append(document.createXULElement("menuseparator"));
+        }
+        continue;
+      }
+      let el = document.createXULElement("menuitem");
+      el.setAttribute("label", item.label);
+      if (item.disabled) {
+        el.setAttribute("disabled", "true");
+      }
+      if (item.checked !== undefined) {
+        el.setAttribute("type", "checkbox");
+        if (item.checked) {
+          el.setAttribute("checked", "true");
+        }
+      }
+      el.addEventListener("command", () => {
+        try {
+          item.run();
+        } catch (e) {
+          console.error(e);
+        }
+      });
+      popup.append(el);
+    }
+    if (popup.lastElementChild?.localName == "menuseparator") {
+      popup.lastElementChild.remove();
+    }
+    if (!popup.childElementCount) {
+      return;
+    }
+    popup.openPopupAtScreen(Math.round(x), Math.round(y), true);
+  },
+
+  copyText(text, note) {
+    try {
+      Cc["@mozilla.org/widget/clipboardhelper;1"]
+        .getService(Ci.nsIClipboardHelper)
+        .copyString(text);
+      if (note) {
+        this.showMessage(note);
+      }
+    } catch (e) {
+      this.showMessage("Couldn't copy that", "error");
+    }
+  },
+
+  /** The page menu, from what SeijakuContextMenuChild reported. The
+      actor stays the way back to the page, for its edit commands. */
+  showPageMenu(browser, data, actor) {
+    if (!browser || !this.tabs.some(t => t.browser === browser)) {
+      return;
+    }
+    let tab = browser.tab;
+    // SpellCheckHelper's flags: EDITABLE (text boxes) and
+    // CONTENTEDITABLE (rich editors).
+    let editable = (data.editFlags & (0x1 | 0x20)) != 0;
+    let command = name => () => {
+      try {
+        actor.sendAsyncMessage("DoCommand", { command: name });
+      } catch (e) { /* the page has gone */ }
+    };
+    let web = url => /^(https?|ftp|file):/i.test(url || "");
+    let fromPage = { triggeringPrincipal: data.principal };
+    let items = [];
+
+    if (data.link && !editable) {
+      let link = data.link;
+      if (/^mailto:/i.test(link)) {
+        let address = decodeURIComponent(link.slice(7).split("?")[0]);
+        items.push({ label: "Copy email address", run: () => this.copyText(address, "Email address copied") });
+      } else {
+        if (web(link)) {
+          items.push({
+            label: "Open link in new tab",
+            run: () => this.openRelatedTab(link, { ...fromPage, referrerInfo: data.linkReferrerInfo, background: true }),
+          });
+          if (!this.isPrivate && /^https?:/i.test(link)) {
+            items.push({ label: "Open link in private window", run: () => this.openPrivateWindow(link) });
+          }
+        }
+        items.push({ label: "Copy link address", run: () => this.copyText(link, "Link copied") });
+        if (web(link)) {
+          items.push({ label: "Save link as…", run: () => this.saveURL(link, { referrerInfo: data.linkReferrerInfo }) });
+        }
+      }
+      items.push("-");
+    }
+
+    if (data.image) {
+      let image = data.image;
+      if (web(image)) {
+        items.push({ label: "Open image in new tab", run: () => this.openRelatedTab(image, { ...fromPage, background: false }) });
+      }
+      items.push({ label: "Copy image", run: command("cmd_copyImage") });
+      items.push({ label: "Copy image address", run: () => this.copyText(image, "Image address copied") });
+      if (web(image) || /^data:image\//i.test(image)) {
+        items.push({ label: "Save image as…", run: () => this.saveURL(image, { referrerInfo: data.referrerInfo }) });
+      }
+      items.push("-");
+    }
+
+    if (data.mediaKind && data.media) {
+      let media = data.media;
+      let kind = data.mediaKind;
+      if (web(media)) {
+        items.push({ label: `Open ${kind} in new tab`, run: () => this.openRelatedTab(media, { ...fromPage, background: false }) });
+      }
+      items.push({ label: `Copy ${kind} address`, run: () => this.copyText(media, "Address copied") });
+      items.push({ label: `Save ${kind} as…`, run: () => this.saveURL(media, { referrerInfo: data.referrerInfo }) });
+      items.push("-");
+    }
+
+    let can = name => !!data.commands?.[name];
+    if (editable) {
+      items.push(
+        { label: "Undo", run: command("cmd_undo"), disabled: !can("cmd_undo") },
+        "-",
+        { label: "Cut", run: command("cmd_cut"), disabled: !can("cmd_cut") },
+        { label: "Copy", run: command("cmd_copy"), disabled: !can("cmd_copy") },
+        { label: "Paste", run: command("cmd_paste"), disabled: !can("cmd_paste") },
+        { label: "Delete", run: command("cmd_delete"), disabled: !can("cmd_delete") },
+        "-",
+        { label: "Select all", run: command("cmd_selectAll"), disabled: !can("cmd_selectAll") },
+        "-",
+      );
+    }
+
+    if (data.selection) {
+      let text = data.selection;
+      let short = text.replace(/\s+/g, " ");
+      if (short.length > 24) {
+        short = short.slice(0, 24) + "…";
+      }
+      if (!editable) {
+        items.push({ label: "Copy", run: command("cmd_copy") });
+      }
+      items.push({ label: `Search for “${short}”`, run: () => this.openRelatedTab(this.searchURL(text), { background: false }) });
+      items.push("-");
+    }
+
+    if (!items.length) {
+      let marked = !!(tab?.url && this.isBookmarked(tab.url));
+      let sourceable = /^(https?|file):/i.test(data.docURL || "");
+      items.push(
+        { label: "Back", run: () => browser.goBack(), disabled: !browser.canGoBack },
+        { label: "Forward", run: () => browser.goForward(), disabled: !browser.canGoForward },
+        { label: "Reload", run: () => browser.reload() },
+        "-",
+        { label: marked ? "Remove bookmark" : "Bookmark this page", run: () => this.toggleBookmark(), disabled: tab !== this.selected },
+        { label: "Save page as…", run: () => this.savePage(tab), disabled: !/^(https?|file):/i.test(tab?.url || "") },
+        { label: "Print…", run: () => this.printPage(), disabled: tab !== this.selected },
+        { label: "Reader view", run: () => this.openReader(), disabled: tab !== this.selected || !/^https?:/i.test(tab?.url || "") },
+        "-",
+        { label: "Select all", run: command("cmd_selectAll") },
+        sourceable && { label: "View page source", run: () => this.openRelatedTab("view-source:" + data.docURL, { background: false }) },
+      );
+    }
+
+    this.openMenu(items, data.screenX / window.devicePixelRatio, data.screenY / window.devicePixelRatio);
+  },
+
+  /** A right-click on the strip: the tab menu on a tab, the button
+      list anywhere else. */
+  onStripContextMenu(event) {
+    event.preventDefault();
+    let tab = event.target.closest?.(".tab")?.tab;
+    if (tab) {
+      this.showTabMenu(tab, event.screenX, event.screenY);
+    } else {
+      this.showStripMenu(event.screenX, event.screenY);
+    }
+  },
+
+  showTabMenu(tab, x, y) {
+    let i = this.tabs.indexOf(tab);
+    let others = this.tabs.filter(t => t !== tab && !t.pinned);
+    let right = this.tabs.slice(i + 1).filter(t => !t.pinned);
+    let muted = false;
+    try {
+      muted = !!tab.browser?.audioMuted;
+    } catch (e) { /* unknown */ }
+    this.openMenu([
+      { label: "New tab", run: () => this.newTab() },
+      "-",
+      { label: "Reload tab", run: () => (tab.browser ? tab.browser.reload() : this.selectTab(tab)) },
+      { label: "Duplicate tab", run: () => this.duplicateTab(tab) },
+      { label: tab.pinned ? "Unpin tab" : "Pin tab", run: () => this.togglePin(tab) },
+      { label: muted ? "Unmute tab" : "Mute tab", run: () => this.toggleMute(tab), disabled: !tab.browser },
+      { label: "Sleep tab", run: () => this.sleepTabNow(tab), disabled: tab.asleep || tab.pinned || this.tabs.length < 2 },
+      { label: "Copy address", run: () => this.copyText(tab.url, "Address copied") },
+      "-",
+      { label: "Close tab", run: () => this.closeTab(tab), disabled: tab.pinned },
+      { label: "Close other tabs", run: () => this.closeTabs(others, tab), disabled: !others.length },
+      { label: "Close tabs to the right", run: () => this.closeTabs(right, tab), disabled: !right.length },
+      "-",
+      { label: "Reopen closed tab", run: () => this.undoCloseTab(), disabled: !this.closed.length },
+    ], x, y);
+  },
+
+  showStripMenu(x, y) {
+    let shown = this.shownStripButtons();
+    this.openMenu([
+      ...STRIP_BUTTONS.map(b => ({
+        label: b.label,
+        checked: shown.has(b.key),
+        run: () => this.setStripButton(b.key, !shown.has(b.key)),
+      })),
+      "-",
+      { label: "Strip settings…", run: () => this.openPage("settings", "strip") },
+    ], x, y);
+  },
+
+  /** A copy of the tab beside it: the same address, a fresh page. */
+  duplicateTab(tab) {
+    this.openTab(tab.url, { index: this.tabs.indexOf(tab) + 1 });
+  },
+
+  /** Sleeps a tab from its menu; the selected one hands over first. */
+  sleepTabNow(tab) {
+    if (tab === this.selected) {
+      this.sleepCurrentTab();
+      return;
+    }
+    if (this.sleep(tab)) {
+      this.saveSession();
+    }
+  },
+
+  /** Closes these tabs, leaving `keep` selected. Pinned tabs stay. */
+  closeTabs(tabs, keep) {
+    if (keep && keep !== this.selected) {
+      this.selectTab(keep);
+    }
+    for (let tab of tabs) {
+      if (!tab.pinned && this.tabs.length > 1) {
+        this.closeTab(tab);
+      }
+    }
+  },
+
+  // -------------------------------------------------------------- links opened from pages
+  //
+  // Tabs opened from a page (a middle-click, Ctrl+click, or "Open link
+  // in new tab") go right after the tab they came from, and several in
+  // a row keep their order, the way Firefox places them.
+
+  openRelatedTab(url, { background = false, triggeringPrincipal, referrerInfo } = {}) {
+    let owner = this.selected;
+    let index = this.tabs.length;
+    if (owner) {
+      let last = this._related?.owner === owner && this.tabs.includes(this._related.last)
+        ? this._related.last
+        : owner;
+      index = this.tabs.indexOf(last) + 1;
+    }
+    index = Math.max(index, this.tabs.filter(t => t.pinned).length);
+    let tab = this.openTab(url, { index, background, triggeringPrincipal, referrerInfo });
+    this._related = background ? { owner, last: tab } : null;
+    return tab;
+  },
+
+  /** A middle-click, Ctrl+click or Shift+click on a link in a page
+      (see SeijakuLinkChild). The page's own principal opens it, so it
+      can load only what the page itself could. */
+  openLinkFromPage(browser, data) {
+    if (!browser || !this.tabs.some(t => t.browser === browser) || !data?.href) {
+      return;
+    }
+    this.openRelatedTab(data.href, {
+      background: !!data.background,
+      triggeringPrincipal: data.principal,
+      referrerInfo: data.referrerInfo,
+    });
+  },
+
+  searchURL(text) {
+    return this.pref("searchUrl", "https://duckduckgo.com/?q=%s").replace("%s", encodeURIComponent(text));
+  },
+
+  goHome() {
+    let browser = this.selectedBrowser;
+    if (browser) {
+      this.load(browser, this.homepage());
+    } else {
+      this.openTab(this.homepage());
+    }
+  },
+
+  /** Ctrl+Shift+R / Ctrl+F5: reload, fetching everything afresh. */
+  hardReload() {
+    try {
+      this.selectedBrowser?.reloadWithFlags(
+        Ci.nsIWebNavigation.LOAD_FLAGS_BYPASS_PROXY | Ci.nsIWebNavigation.LOAD_FLAGS_BYPASS_CACHE
+      );
+    } catch (e) {
+      this.selectedBrowser?.reload();
+    }
+  },
+
+  /** Mouse side buttons and keyboard media keys. */
+  onAppCommand(event) {
+    let browser = this.selectedBrowser;
+    switch (event.command) {
+      case "Back":
+        browser?.goBack();
+        break;
+      case "Forward":
+        browser?.goForward();
+        break;
+      case "Reload":
+        browser?.reload();
+        break;
+      case "Stop":
+        this.stopLoad();
+        break;
+      case "Home":
+        this.goHome();
+        break;
+      case "New":
+        this.newTabWithBar();
+        break;
+      case "Close":
+        this.closeTab();
+        break;
+      case "Find":
+        this.showFindBar();
+        break;
+      case "Search":
+        this.showFloatingBar();
+        break;
+      case "Bookmarks":
+        this.openPage("bookmarks");
+        break;
+      case "Print":
+        this.printPage();
+        break;
+      case "Save":
+        this.savePage();
+        break;
+      default:
+        return;
+    }
+    event.stopPropagation();
+  },
+
+  // -------------------------------------------------------------- saving files from pages
+  //
+  // Save link / image / video / page as: a save dialog, then the
+  // engine's own download machinery, so the file shows on the
+  // downloads page like any other. A saved page is the page's file as
+  // the site sends it (its HTML, a PDF, an image), not a snapshot of
+  // everything it loaded.
+
+  pickerInit(picker, title, mode) {
+    try {
+      picker.init(window.browsingContext, title, mode);
+    } catch (e) {
+      picker.init(window, title, mode);
+    }
+  },
+
+  /** A file name for an address: its last path part, made safe. */
+  fileNameFor(url, fallback = "download") {
+    let name = "";
+    try {
+      let u = new URL(url);
+      if (u.protocol == "data:") {
+        let type = /^data:image\/([a-z0-9.+-]+)/i.exec(url)?.[1] || "";
+        return "image" + (type ? "." + type.replace("svg+xml", "svg").replace("jpeg", "jpg") : "");
+      }
+      name = decodeURIComponent(u.pathname.split("/").pop() || "") || u.hostname;
+    } catch (e) { /* the fallback below */ }
+    return this.safeFileName(name) || fallback;
+  },
+
+  safeFileName(name) {
+    try {
+      let { DownloadPaths } = ChromeUtils.importESModule("resource://gre/modules/DownloadPaths.sys.mjs");
+      return DownloadPaths.sanitize(name);
+    } catch (e) {
+      return String(name).replace(/[\\/:*?"<>|\u0000-\u001f]/g, "_").trim().slice(0, 200);
+    }
+  },
+
+  async saveURL(url, { referrerInfo = null, name = "" } = {}) {
+    try {
+      let picker = Cc["@mozilla.org/filepicker;1"].createInstance(Ci.nsIFilePicker);
+      this.pickerInit(picker, "Save as", Ci.nsIFilePicker.modeSave);
+      picker.defaultString = name || this.fileNameFor(url);
+      let ext = /\.([a-z0-9]{1,8})$/i.exec(picker.defaultString)?.[1];
+      if (ext) {
+        picker.defaultExtension = ext;
+      }
+      try {
+        picker.displayDirectory = this.downloadDir();
+      } catch (e) { /* the picker's own folder */ }
+      picker.appendFilters(Ci.nsIFilePicker.filterAll);
+      let result = await picker.open();
+      if (
+        (result != Ci.nsIFilePicker.returnOK && result != Ci.nsIFilePicker.returnReplace) ||
+        !picker.file
+      ) {
+        return;
+      }
+      let source = { url, isPrivate: this.isPrivate };
+      if (referrerInfo) {
+        try {
+          source.referrerInfo = E10SUtils.deserializeReferrerInfo(referrerInfo);
+        } catch (e) { /* no referrer, then */ }
+      }
+      await this.startDownload(source, picker.file.path);
+    } catch (e) {
+      this.showMessage(`Couldn't save that: ${e.message}`, "error");
+    }
+  },
+
+  /** Ctrl+S: save this page's file. */
+  savePage(tab = this.selected) {
+    let url = tab?.url || "";
+    if (!/^(https?|file):/i.test(url)) {
+      this.showMessage("Only web pages and files can be saved");
+      return;
+    }
+    let name = this.fileNameFor(url, "");
+    if (!/\.[a-z0-9]{1,8}$/i.test(name)) {
+      name = (this.safeFileName(tab.title || "") || name || "page") + ".html";
+    }
+    this.saveURL(url, { name });
+  },
+
+  async startDownload(source, targetPath) {
+    let { Downloads } = ChromeUtils.importESModule("resource://gre/modules/Downloads.sys.mjs");
+    if (!this._downloadsList) {
+      this._downloadsList = await Downloads.getList(this.isPrivate ? Downloads.PRIVATE : Downloads.PUBLIC);
+    }
+    let download = await Downloads.createDownload({ source, target: { path: targetPath } });
+    await this._downloadsList.add(download);
+    await download.start();
+  },
+
+  // -------------------------------------------------------------- strip buttons
+  //
+  // seijaku.strip.buttons lists the buttons that show (see
+  // STRIP_BUTTONS); the rest are hidden with an attribute, so a button
+  // that hides itself for its own reasons (the locks, which show only
+  // on web pages) keeps doing so. Right-click the strip, or Settings,
+  // to change it. Keyboard shortcuts keep working for hidden buttons.
+
+  shownStripButtons() {
+    return new Set(String(this.pref("strip.buttons", STRIP_DEFAULT)).split(",").map(k => k.trim()));
+  },
+
+  applyStripButtons() {
+    let shown = this.shownStripButtons();
+    for (let b of STRIP_BUTTONS) {
+      document.getElementById(b.id)?.toggleAttribute("strip-off", !shown.has(b.key));
+    }
+  },
+
+  setStripButton(key, on) {
+    let shown = this.shownStripButtons();
+    if (on) {
+      shown.add(key);
+    } else {
+      shown.delete(key);
+    }
+    let value = STRIP_BUTTONS.filter(b => shown.has(b.key)).map(b => b.key).join(",");
+    try {
+      Services.prefs.setStringPref(PREF + "strip.buttons", value);
+    } catch (e) { /* the strip just stays as it is */ }
+  },
+
+  /** For the Settings page: every button, and whether it shows. */
+  stripButtons() {
+    let shown = this.shownStripButtons();
+    return STRIP_BUTTONS.map(b => ({ key: b.key, label: b.label, shown: shown.has(b.key) }));
+  },
+
+  // -------------------------------------------------------------- page fullscreen
+  //
+  // A page's fullscreen request (a video's fullscreen button) runs
+  // through SeijakuFullscreenParent; the window only hides its own
+  // chrome (the inDOMFullscreen attribute, in CSS) and says how to
+  // leave. Esc always leaves: the engine handles it, and keyboard
+  // lock stays off. Switching tabs leaves too (see selectTab).
+
+  onPageFullscreen(on, origin) {
+    let panel = document.getElementById("fullscreen-note");
+    clearTimeout(this._fullscreenNoteTimer);
+    if (!on) {
+      try {
+        panel.hidePopup();
+      } catch (e) { /* not open */ }
+      return;
+    }
+    this.hideFloatingBar();
+    this.hidePalette();
+    if (!document.getElementById("findbar").hidden) {
+      this.hideFindBar();
+    }
+    let host = "";
+    try {
+      host = origin ? Services.io.newURI(origin).host : "";
+    } catch (e) { /* no host to name */ }
+    document.getElementById("fullscreen-note-text").textContent =
+      host ? `${host} is full screen — press Esc to leave` : "Full screen — press Esc to leave";
+    try {
+      let width = 340;
+      panel.openPopupAtScreen(
+        Math.round(window.screenX + (window.outerWidth - width) / 2),
+        window.screenY + 24
+      );
+    } catch (e) {
+      return;
+    }
+    this._fullscreenNoteTimer = setTimeout(() => {
+      try {
+        panel.hidePopup();
+      } catch (e) { /* already closed */ }
+    }, 3000);
   },
 
   // -------------------------------------------------------------- command palette
@@ -2541,20 +3150,7 @@ var Seijaku = {
         this.showMessage("No source address was kept for this download", "error");
         return;
       }
-      let { Downloads } = ChromeUtils.importESModule(
-        "resource://gre/modules/Downloads.sys.mjs"
-      );
-      if (!this._downloadsList) {
-        this._downloadsList = await Downloads.getList(
-          this.isPrivate ? Downloads.PRIVATE : Downloads.PUBLIC
-        );
-      }
-      let download = await Downloads.createDownload({
-        source: { url: sourceUrl },
-        target: { path: targetPath },
-      });
-      await this._downloadsList.add(download);
-      await download.start();
+      await this.startDownload({ url: sourceUrl }, targetPath);
     } catch (e) {
       this.showMessage(`Couldn't restart the download: ${e.message}`, "error");
     }
@@ -3302,7 +3898,7 @@ var Seijaku = {
     this.$tabbar.insertBefore(tab.el, next?.parentNode == this.$tabbar ? next : null);
   },
 
-  load(browser, url, { triggeringPrincipal } = {}) {
+  load(browser, url, { triggeringPrincipal, referrerInfo } = {}) {
     // Extension files: a Firefox (.xpi) file installs through the
     // extension host; a Chrome (.crx) file genuinely cannot run in
     // Gecko, so it is still refused with a plain explanation.
@@ -3339,10 +3935,18 @@ var Seijaku = {
       return;
     }
     try {
-      browser.loadURI(uri, {
+      let params = {
         triggeringPrincipal:
           triggeringPrincipal || Services.scriptSecurityManager.getSystemPrincipal(),
-      });
+      };
+      // A link opened from a page tells the site where it came from,
+      // under the page's own referrer policy.
+      if (referrerInfo) {
+        try {
+          params.referrerInfo = E10SUtils.deserializeReferrerInfo(referrerInfo);
+        } catch (e) { /* no referrer, then */ }
+      }
+      browser.loadURI(uri, params);
     } catch (e) {
       this.showMessage(`Can't open ${url}: ${e.message}`, "error");
     }
@@ -3353,6 +3957,10 @@ var Seijaku = {
       return;
     }
     this.hideFloatingBar();
+    // A page filling the screen gives it back when its tab is left.
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+    }
     let previous = this.selected;
     if (previous && previous !== tab) {
       previous.el.removeAttribute("selected");
@@ -4429,7 +5037,8 @@ var Seijaku = {
   },
 };
 
-/** Keyboard shortcuts. Reserved, so pages can't take them over. */
+/** Keyboard shortcuts. Reserved, so pages can't take them over, except
+    the few marked page: true, which a page may answer first. */
 var Keys = {
   bindings: [
     ["t", "accel", () => Seijaku.newTabWithBar()],
@@ -4441,6 +5050,12 @@ var Keys = {
     ["n", "accel,shift", () => Seijaku.openPrivateWindow()],
     ["s", "accel,shift", () => Seijaku.sleepCurrentTab()],
     ["r", "accel", () => Seijaku.selectedBrowser?.reload()],
+    ["r", "accel,shift", () => Seijaku.hardReload()],
+    ["VK_F5", "accel", () => Seijaku.hardReload()],
+    ["VK_HOME", "alt", () => Seijaku.goHome()],
+    // Not reserved: web editors (documents, code) save with Ctrl+S
+    // themselves, and the page must get it first.
+    ["s", "accel", () => Seijaku.savePage(), { page: true }],
     ["f", "accel", () => Seijaku.showFindBar()],
     ["=", "accel", () => Seijaku.zoom(0.1)],
     ["+", "accel", () => Seijaku.zoom(0.1)],
@@ -4465,7 +5080,7 @@ var Keys = {
 
   install() {
     let keyset = document.createXULElement("keyset");
-    for (let [key, modifiers, action] of this.bindings) {
+    for (let [key, modifiers, action, options] of this.bindings) {
       let el = document.createXULElement("key");
       if (key.startsWith("VK_")) {
         el.setAttribute("keycode", key);
@@ -4475,7 +5090,7 @@ var Keys = {
       if (modifiers) {
         el.setAttribute("modifiers", modifiers);
       }
-      el.setAttribute("reserved", "true");
+      el.setAttribute("reserved", options?.page ? "false" : "true");
       el.addEventListener("command", () => {
         try {
           action();
