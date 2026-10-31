@@ -251,6 +251,7 @@
 
     // Engine errors behind an extension's "An unexpected error occurred"
     // only reach the console service; copy them into the log.
+    let seen = new Set();
     Services.console.registerListener({
       observe(message) {
         let text = message.message ?? "";
@@ -260,7 +261,8 @@
             text += `\n${message.stack}`;
           }
         }
-        if (/extension|ext-|seijaku/i.test(text)) {
+        if (/extension|ext-|seijaku/i.test(text) && !seen.has(text)) {
+          seen.add(text);
           dump(`Seijaku smoke console: ${text.replace(/\n/g, " | ")}\n`);
         }
       },
@@ -283,15 +285,20 @@
         let can = ctx?.apiCan;
         let fn = can && (await can.asyncFindAPIPath("browserAction.setBadgeText"));
         const { Schemas } = ChromeUtils.importESModule("resource://gre/modules/Schemas.sys.mjs");
-        dump(`Seijaku smoke diag: ctx=${!!ctx} fn=${typeof fn} apis=${can && [...can.apis.keys()]} ` +
+        var diag = (`ctx=${!!ctx} fn=${typeof fn} apis=${can && [...can.apis.keys()]} ` +
           `root.browserAction=${can && Object.keys(can.root.browserAction ?? {})} ` +
           `checkGet=${apiManager._checkGetAPI("browserAction", extension, "addon_parent")} ` +
           `schemaPerm=${Schemas.checkPermissions("browserAction", extension)} ` +
-          `module=${JSON.stringify(apiManager.getModule("browserAction"))}\n`);
+          `module=${JSON.stringify(apiManager.getModule("browserAction"))}`);
       } catch (e) {
         throw new Error(`direct badge call: ${e} | ${String(e?.stack).replace(/\n/g, " | ")}`);
       }
-      await waitFor("the badge the background page sets", () => badgeOf(TEST_BUTTON) == "on");
+      try {
+        await waitFor("the badge the background page sets", () => badgeOf(TEST_BUTTON) == "on");
+      } catch (e) {
+        throw new Error(`${e.message}; ${diag}`);
+      }
+      return diag;
     });
 
     let target;
