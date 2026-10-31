@@ -600,7 +600,6 @@ var Seijaku = {
     // before running the installer. Firefox's download manager adds
     // one and this download shouldn't have one, but make sure.
     try {
-      let { IOUtils } = ChromeUtils.importESModule("resource://gre/modules/IOUtils.sys.mjs");
       await IOUtils.remove(installerFile.path + ":Zone.Identifier", { ignoreAbsent: true });
     } catch (e) { /* no mark, or nothing to remove */ }
     this._stagedUpdate = installerFile.path;
@@ -640,7 +639,6 @@ var Seijaku = {
   cleanUpOldUpdates() {
     setTimeout(async () => {
       try {
-        let { IOUtils } = ChromeUtils.importESModule("resource://gre/modules/IOUtils.sys.mjs");
         let tmp = Services.dirsvc.get("TmpD", Ci.nsIFile).path;
         for (let path of await IOUtils.getChildren(tmp)) {
           let name = PathUtils.filename(path);
@@ -649,10 +647,12 @@ var Seijaku = {
           let old = (/^SeijakuSetup-[\d.]+\.exe$/i.test(name) && name != pending) ||
             name.toLowerCase() == "seijaku-update.ps1";
           if (old) {
-            await IOUtils.remove(path).catch(() => {});
+            await IOUtils.remove(path).catch(e => console.warn(`Seijaku: couldn't remove ${path}: ${e}`));
           }
         }
-      } catch (e) { /* tidying up is best effort */ }
+      } catch (e) {
+        console.warn(`Seijaku: tidying up old updates failed: ${e}`);
+      }
     }, 20 * 1000);
   },
 
