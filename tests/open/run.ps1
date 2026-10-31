@@ -101,7 +101,11 @@ try {
     $launcher = Run-Command $pdfCmd $pdf1
     Wait-InSession 'first file.pdf' 'A PDF opened while Seijaku was closed'
 
-    # 2. Running: "Open with" > Seijaku on another PDF.
+    # 2. Running: "Open with" > Seijaku on another PDF. The engine never
+    # hands a command line to a running instance from a headless start
+    # (headless turns its remote client off), so this start isn't headless,
+    # as a real one isn't; it only passes the file on and quits.
+    Remove-Item Env:\MOZ_HEADLESS -ErrorAction SilentlyContinue
     $before = @(Seijaku-Processes | Where-Object { $_.Name -eq 'firefox.exe' -and $_.CommandLine -notmatch '-contentproc' }).Count
     $launcher = Run-Command $withCmd $pdf2
     Wait-InSession 'second file.pdf' 'A PDF opened while Seijaku was running'
