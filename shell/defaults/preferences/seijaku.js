@@ -146,3 +146,14 @@ pref("extensions.abuseReport.enabled", false);
    toolbars exist. */
 pref("sidebar.verticalTabs", false);
 pref("browser.toolbars.bookmarks.visibility", "never");
+
+/* PDFs open in the engine's own viewer (pdf.js, started by seijaku.js),
+   as in Firefox: PDFs a site sends as an attachment or as a plain
+   binary file too, instead of going to the download list. */
+pref("browser.download.open_pdf_attachments_inline", true);
+pref("pdfjs.handleOctetStream", true);
+/* The viewer's newer look takes its colours from Firefox's front end,
+   which Seijaku doesn't have (Breached found its toolbar icons drawn
+   blank with it), and no "PDFs just got easier" promotion bar. */
+pref("pdfjs.enableNova", false);
+pref("pdfjs.featuresNotificationImpressionLimit", 0);

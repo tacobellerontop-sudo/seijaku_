@@ -1,8 +1,8 @@
 /* Seijaku: a lean browser shell on Gecko. Tabs on any edge, a floating
    URL bar (no persistent address line), a home page, settings, tab
    sleeping (auto and on demand), auto-update, find, zoom, themes,
-   bookmarks, history, downloads, tab suggestions, a PDF viewer with
-   annotation, permission prompts, private windows, extensions, a
+   bookmarks, history, downloads, tab suggestions, PDFs (in the engine's own
+   viewer), permission prompts, private windows, extensions, a
    reader view, right-click menus, and page fullscreen. Nothing else on purpose: no accounts, no services, no
    command bar, no sync, no AI. See docs/PLAN.md. */
 
@@ -84,6 +84,27 @@ for (let [name, events] of [
   } catch (e) { /* already registered by another window */ }
 }
 
+// PDFs: Firefox's own viewer (pdf.js) ships in the engine, not in the
+// dropped browser/ folder, but Firefox's front end is what starts it:
+// it registers the viewer's page actor and makes pdf.js the handler
+// for PDF files. Without that, every PDF (a clicked link, a typed
+// address, a file from Explorer) went to the download list. Same as
+// Breached does it. The viewer costs nothing until a PDF opens.
+try {
+  ChromeUtils.registerWindowActor("PdfJs", {
+    parent: { esModuleURI: "resource://pdf.js/PdfJsParent.sys.mjs" },
+    child: { esModuleURI: "resource://pdf.js/PdfJsChild.sys.mjs" },
+    allFrames: true,
+    safeForUntrustedWebProcess: true,
+  });
+} catch (e) { /* already registered by another window */ }
+try {
+  let { PdfJs } = ChromeUtils.importESModule("resource://pdf.js/PdfJs.sys.mjs");
+  PdfJs.init(!Services.prefs.prefHasUserValue("pdfjs.migrationVersion"));
+} catch (e) {
+  console.error("Seijaku: starting the PDF viewer", e);
+}
+
 // Site permission prompts (notifications, camera, microphone): see
 // PermissionPrompt.sys.mjs for why these are registered at runtime.
 try {
@@ -97,7 +118,7 @@ const SESSION_FILE = "seijaku-session.json";
 const DATA_FILE = "seijaku-data.json";
 const HISTORY_LIMIT = 1000;
 const MESSAGE_MS = 4000;
-const SEIJAKU_VERSION = "1.0.1";
+const SEIJAKU_VERSION = "1.0.2";
 const UPDATE_REPO = "tacobellerontop-sudo/seijaku_";
 const UPDATE_CHECK_MS = 24 * 60 * 60 * 1000;
 // Session and data writes are batched: a page load reports its
@@ -138,11 +159,21 @@ const PAGES = {
   "seijaku:downloads": "chrome://seijaku/content/pages/downloads.html",
   "seijaku:extensions": "chrome://seijaku/content/pages/extensions.html",
   "seijaku:reader": "chrome://seijaku/content/pages/reader.html",
-  "seijaku:pdf": "chrome://seijaku/content/pages/pdf.html",
 };
 
 function realURL(url) {
   let [page, hash] = url.split("#", 2);
+  // Seijaku's old PDF page (before 1.0.2): bookmarks, history and saved
+  // sessions may still hold seijaku:pdf#url=<address>. The address
+  // itself now opens in the engine's PDF viewer.
+  if (page == "seijaku:pdf") {
+    let target = /^url=(.*)$/.exec(hash || "")?.[1];
+    try {
+      return target ? decodeURIComponent(target) : "about:blank";
+    } catch (e) {
+      return "about:blank";
+    }
+  }
   return PAGES[page] ? PAGES[page] + (hash ? "#" + hash : "") : url;
 }
 
@@ -2464,6 +2495,11 @@ var Seijaku = {
 
   /** Ctrl+S: save this page's file. */
   savePage(tab = this.selected) {
+    // A PDF saves through its viewer, so drawings and filled-in forms
+    // are kept (it ends up in saveURL below, via window.saveURL).
+    if (this.pdfMessage(tab, "PDFJS:Save")) {
+      return;
+    }
     let url = tab?.url || "";
     if (!/^(https?|file):/i.test(url)) {
       this.showMessage("Only web pages and files can be saved");
@@ -3998,19 +4034,6 @@ var Seijaku = {
       this.installXpiUrl(String(url));
       return;
     }
-    // PDFs open in the built-in viewer instead of downloading — but
-    // only for navigations the shell itself starts (typed, suggested,
-    // bookmarked). A PDF link clicked inside a page still downloads:
-    // intercepting that would need a stream-converter-level hook the
-    // shell does not have. view-source: of a PDF is left alone.
-    if (
-      !isViewSource &&
-      /\.pdf$/i.test(bare) &&
-      /^(https?|file):/i.test(String(url)) &&
-      !String(url).startsWith("seijaku:pdf")
-    ) {
-      url = "seijaku:pdf#url=" + encodeURIComponent(String(url));
-    }
     url = realURL(url);
     let uri;
     try {
@@ -4117,6 +4140,42 @@ var Seijaku = {
     this.openTab(last.url, { index: Math.min(last.index, this.tabs.length) });
   },
 
+  // -------------------------------------------------------------- PDF viewer
+  //
+  // A PDF shows in the engine's own viewer (pdf.js, started at the top
+  // of this file). In Firefox the viewer is wired to the front end's
+  // find bar, zoom and save keys; here the same messages go to it from
+  // Seijaku's own find bar and keys.
+
+  /** The viewer's actor when the tab shows a PDF, else null. */
+  pdfActor(tab) {
+    try {
+      return tab?.browser?.browsingContext?.currentWindowGlobal?.getExistingActor("PdfJs") ?? null;
+    } catch (e) {
+      return null;
+    }
+  },
+
+  /** Sends the PDF viewer in this tab one of its key messages (zoom,
+      save). False when the tab isn't showing a PDF. */
+  pdfMessage(tab, name) {
+    if (!this.pdfActor(tab)) {
+      return false;
+    }
+    try {
+      tab.browser.sendMessageToActor(name, {}, "PdfJs");
+      return true;
+    } catch (e) {
+      return false;
+    }
+  },
+
+  /** The tab's find bar as the PDF viewer sees it, when it shows a PDF. */
+  pdfFindBar(tab) {
+    let bar = tab?._pdfFindBar;
+    return bar?.listening && this.pdfActor(tab) ? bar : null;
+  },
+
   // -------------------------------------------------------------- find, zoom
   //
   // Both ride on the page itself, so they cost nothing when unused.
@@ -4147,6 +4206,11 @@ var Seijaku = {
 
   hideFindBar() {
     document.getElementById("findbar").hidden = true;
+    let pdf = this.pdfFindBar(this.selected);
+    if (pdf) {
+      pdf.findbarClosed();
+      return;
+    }
     try {
       let finder = this.selectedBrowser?.finder;
       if (finder) {
@@ -4191,6 +4255,13 @@ var Seijaku = {
     if (!term || !browser) {
       return;
     }
+    // A PDF is searched by its viewer (pdf.js), which draws its text
+    // itself: the engine's finder can't see the pages it hasn't drawn.
+    let pdf = this.pdfFindBar(this.selected);
+    if (pdf) {
+      pdf.search(term, backwards);
+      return;
+    }
     let finder = this.finderFor(browser);
     if (finder) {
       try {
@@ -4225,6 +4296,10 @@ var Seijaku = {
     if (!b) {
       return;
     }
+    // The PDF viewer zooms its own pages (sharp text, its zoom box).
+    if (this.pdfMessage(this.selected, step > 0 ? "PDFJS:ZoomIn" : "PDFJS:ZoomOut")) {
+      return;
+    }
     try {
       let context = b.browsingContext;
       let zoom = Math.min(3, Math.max(0.3, Math.round((context.fullZoom + step) * 10) / 10));
@@ -4238,6 +4313,9 @@ var Seijaku = {
   zoomReset() {
     let b = this.selectedBrowser;
     if (!b) {
+      return;
+    }
+    if (this.pdfMessage(this.selected, "PDFJS:ZoomReset")) {
       return;
     }
     try {
@@ -5032,42 +5110,6 @@ var Seijaku = {
     return this._readerArticle;
   },
 
-  // -------------------------------------------------------------- PDF bytes
-  //
-  // The viewer page never fetches a PDF itself: a chrome page
-  // fetching an arbitrary http URL would hit CORS, and a file URL
-  // would hit local-file rules. The shell fetches with the system
-  // principal instead, which bypasses both, and hands the bytes to
-  // the viewer. Saving goes the same way: the viewer builds the
-  // annotated file with pdf-lib and the shell writes it into the
-  // Downloads folder.
-
-  async fetchPdfBytes(url) {
-    let response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`Couldn't fetch the PDF (${response.status})`);
-    }
-    let bytes = new Uint8Array(await response.arrayBuffer());
-    // Plain data crosses compartments safely; the viewer page
-    // normalizes with new Uint8Array() before handing the bytes to
-    // pdf.js (whose instanceof checks would fail on a wrapped array).
-    return bytes;
-  },
-
-  async downloadPdfBytes(filename, bytes) {
-    let safe = String(filename).replace(/[\\/:*?"<>|]/g, "_") || "annotated.pdf";
-    // Normalize into this compartment: bytes arriving from a page
-    // fail instanceof checks here, but the constructor copies them.
-    let data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-    // The Settings download folder, when set (else the engine default).
-    let dir = this.downloadDir();
-    let file = dir.clone();
-    file.append(safe);
-    let { IOUtils } = ChromeUtils.importESModule("resource://gre/modules/IOUtils.sys.mjs");
-    await IOUtils.write(file.path, data);
-    this.showMessage(`Saved ${safe}`);
-  },
-
   // -------------------------------------------------------------- events
 
   handleEvent(event) {
@@ -5233,5 +5275,124 @@ var Keys = {
     document.documentElement.append(keyset);
   },
 };
+
+/**
+ * What the PDF viewer (pdf.js) looks for in Firefox's front end, kept to
+ * the few pieces it uses: the tab for a page, that tab's find bar, and
+ * saveURL for its Download button. The viewer's parent actor finds them
+ * through browser.getTabBrowser(), which returns window.gBrowser.
+ */
+
+/** A tab's find bar as the PDF viewer sees it. Seijaku's own find bar
+    sends the viewer find events through it, and the viewer answers
+    with the result ("not found" goes on the message line). */
+class PdfFindBar extends EventTarget {
+  constructor(tab) {
+    super();
+    this.tab = tab;
+    this.hidden = true;
+    this.FIND_NORMAL = 0;
+    this._findField = { select() {}, focus() {} };
+    this.listening = 0;
+    this.lastQuery = null;
+  }
+
+  get browser() {
+    return this.tab.browser;
+  }
+
+  // The viewer listens while its page is open and stops when it closes.
+  addEventListener(type, listener, options) {
+    if (type == "find") {
+      this.listening++;
+    }
+    super.addEventListener(type, listener, options);
+  }
+
+  removeEventListener(type, listener, options) {
+    if (type == "find") {
+      this.listening = Math.max(0, this.listening - 1);
+      this.lastQuery = null;
+    }
+    super.removeEventListener(type, listener, options);
+  }
+
+  open() {
+    this.hidden = false;
+    Seijaku.showFindBar();
+  }
+
+  /** A new term searches from the current page; the same term moves on. */
+  search(query, backwards) {
+    this.hidden = false;
+    let type = query == this.lastQuery ? "findagain" : "find";
+    this.lastQuery = query;
+    this.dispatchEvent(new CustomEvent(type, {
+      detail: {
+        query,
+        caseSensitive: false,
+        entireWord: false,
+        highlightAll: false,
+        findPrevious: backwards,
+        matchDiacritics: false,
+      },
+    }));
+  }
+
+  findbarClosed() {
+    this.hidden = true;
+    this.lastQuery = null;
+    this.dispatchEvent(new CustomEvent("findbarclose"));
+  }
+
+  updateControlState(result) {
+    if (result == Ci.nsITypeAheadFind.FIND_NOTFOUND && this.lastQuery) {
+      Seijaku.showMessage(`"${this.lastQuery}" not found`);
+    }
+  }
+
+  onMatchesCountResult() {}
+}
+
+var gBrowser = {
+  // The same handful Breached's gBrowser offers, for engine code that
+  // checks for a tab strip before using it.
+  get selectedBrowser() {
+    return Seijaku.selectedBrowser;
+  },
+  get selectedTab() {
+    return Seijaku.selected?.el ?? null;
+  },
+  get currentURI() {
+    return Seijaku.selectedBrowser?.currentURI ?? null;
+  },
+  shouldActivateDocShell(browser) {
+    return browser === Seijaku.selectedBrowser;
+  },
+  getTabForBrowser(browser) {
+    return Seijaku.tabs.find(t => t.browser && t.browser === browser)?.el ?? null;
+  },
+  getCachedFindBar(el) {
+    let tab = Seijaku.tabs.find(t => t.el === el);
+    if (!tab) {
+      return null;
+    }
+    return (tab._pdfFindBar ||= new PdfFindBar(tab));
+  },
+  getFindBar(el) {
+    return Promise.resolve(this.getCachedFindBar(el));
+  },
+};
+
+/** The PDF viewer's Download button (and Ctrl+S on a PDF): the file it
+    built, with any drawings, saved through Seijaku's save dialog. */
+function saveURL(url, originalUrl, fileName, titleKey, bypassCache, skipPrompt, referrerInfo, cookieJarSettings, sourceDocument, isPrivate, principal, onComplete) {
+  let name = Seijaku.safeFileName(fileName || "") || Seijaku.fileNameFor(originalUrl || url, "document.pdf");
+  Seijaku.saveURL(url, { name }).finally(() => {
+    try {
+      onComplete?.();
+    } catch (e) { /* the viewer's clean-up only */ }
+  });
+}
 
 window.addEventListener("load", () => Seijaku.init(), { once: true });
