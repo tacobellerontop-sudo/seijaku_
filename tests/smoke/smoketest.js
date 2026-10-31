@@ -374,20 +374,27 @@
     await check("uBlock Origin blocks an ad and counts it on its badge", async () => {
       await waitFor("uBlock Origin's button", () => document.getElementById(UBO_BUTTON), 30000);
       // Its filter lists compile on first run; until then, try again.
-      await waitFor(
-        "the ad script to be blocked",
+      // uBlock Origin swaps adsbygoogle.js for its own stand-in rather
+      // than failing it, so the proof is its count of blocked requests.
+      let badge = await waitFor(
+        "a blocked count on uBlock Origin's badge",
         async () => {
           if (ads) {
             Seijaku.closeTab(ads);
           }
           ads = await openAndLoad("ads.html");
-          await sleep(500);
-          return ads.title == "ads:blocked";
+          for (let i = 0; i < 10; i++) {
+            await sleep(500);
+            let count = badgeOf(UBO_BUTTON);
+            if (/^[1-9]\d*$/.test(count)) {
+              return count;
+            }
+          }
+          return false;
         },
         120000
       );
-      let badge = await waitFor("a blocked count on the badge", () => /^[1-9]\d*$/.test(badgeOf(UBO_BUTTON)) && badgeOf(UBO_BUTTON), 20000);
-      return `badge ${badge}`;
+      return `badge ${badge}, page says ${ads.title}`;
     });
 
     await check("uBlock Origin's popup opens", async () => {
