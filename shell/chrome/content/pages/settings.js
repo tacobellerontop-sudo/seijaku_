@@ -222,6 +222,27 @@ window.addEventListener("DOMContentLoaded", () => {
       result.textContent = `Couldn't clear: ${e.message}`;
     }
   });
+  // Strip buttons: the list comes from the shell (STRIP_BUTTONS in
+  // seijaku.js), so there is one list; the shell applies the pref live.
+  let stripBox = document.getElementById("strip-buttons");
+  try {
+    let shell = shellWindow()?.Seijaku;
+    for (let button of shell?.stripButtons() ?? []) {
+      let label = document.createElement("label");
+      label.className = "inline";
+      let box = document.createElement("input");
+      box.type = "checkbox";
+      box.checked = button.shown;
+      box.addEventListener("change", () => {
+        shell.setStripButton(button.key, box.checked);
+        flashSaved();
+      });
+      label.append(box, " " + button.label);
+      stripBox.append(label);
+    }
+  } catch (e) {
+    stripBox.textContent = "Right-click the strip to choose its buttons.";
+  }
   bindBool("setting-update", "seijaku.update.enabled");
   bindBool("setting-autohide", "seijaku.chrome.autohide");
   bindBool("setting-tab-icons", "seijaku.tabs.icons");

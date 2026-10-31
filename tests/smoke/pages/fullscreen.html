@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>fs:waiting</title></head>
+<body>
+<div id="player" style="width: 320px; height: 180px; background: #000"></div>
+<script>
+  document.addEventListener("fullscreenchange", () => {
+    document.title = document.fullscreenElement ? "fs:ok" : "fs:exited";
+  });
+  document.getElementById("player").requestFullscreen()
+    .catch(e => (document.title = "fs:error:" + e.name));
+</script>
+</body>
+</html>

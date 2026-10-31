@@ -31,12 +31,16 @@
       <button id="nav-back" class="nav-button" title="Back (Alt+Left)" tabindex="-1" disabled="disabled"></button>
       <button id="nav-forward" class="nav-button" title="Forward (Alt+Right)" tabindex="-1" disabled="disabled"></button>
       <button id="nav-reload" class="nav-button" title="Reload (Ctrl+R)" tabindex="-1"></button>
+      <button id="nav-home" class="nav-button" title="Home (Alt+Home)" tabindex="-1"></button>
     </span>
     <div id="tabbar" role="tablist"></div>
     <span id="strip-actions">
       <button id="tab-new" class="nav-button" title="New tab (Ctrl+T)" tabindex="-1"></button>
       <button id="tab-undo" class="nav-button" title="Reopen closed tab (Ctrl+Shift+T)" tabindex="-1" disabled="disabled"></button>
       <button id="bookmark-star" class="nav-button" title="Bookmark this page (Ctrl+D)" tabindex="-1"></button>
+      <button id="reader-button" class="nav-button" title="Reader view" tabindex="-1"></button>
+      <button id="bookmarks-button" class="nav-button" title="Bookmarks (Ctrl+Shift+B)" tabindex="-1"></button>
+      <button id="history-button" class="nav-button" title="History (Ctrl+H)" tabindex="-1"></button>
       <button id="downloads-button" class="nav-button" title="Downloads (Ctrl+J)" tabindex="-1"></button>
       <!-- Connection security (this strip button), kept apart from
            the permission lock: this is whether the connection is
@@ -70,6 +74,14 @@
        reveals the strip. See the auto-hide section in seijaku.css. -->
   <div id="edge-strip"></div>
   <xul:popupset id="mainPopupSet">
+    <!-- The right-click menu for pages, tabs and the strip: one popup,
+         filled by seijaku.js each time it opens. -->
+    <xul:menupopup id="seijaku-menu" />
+    <!-- The short note when a page goes full screen (a video): how to
+         leave. It never takes focus, so Esc still reaches the page. -->
+    <xul:panel id="fullscreen-note" noautofocus="true" noautohide="true" consumeoutsideclicks="false">
+      <div id="fullscreen-note-text"></div>
+    </xul:panel>
     <!-- The floating URL bar: a XUL panel, so it renders above page
          content (a plain div did not reliably do that). -->
     <xul:panel id="urlbar-panel">

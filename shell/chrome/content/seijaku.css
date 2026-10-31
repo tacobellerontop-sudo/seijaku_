@@ -107,6 +107,22 @@ body {
 #strip-menu {
   --icon: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='black'><circle cx='6' cy='12' r='1.5'/><circle cx='12' cy='12' r='1.5'/><circle cx='18' cy='12' r='1.5'/></svg>");
 }
+#nav-home {
+  --icon: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><path d='M4.5 11 12 4.5l7.5 6.5'/><path d='M6.5 9.5v10h11v-10'/><path d='M10 19.5v-5h4v5'/></svg>");
+}
+#reader-button {
+  --icon: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round'><path d='M5 6.5h14M5 10.5h14M5 14.5h14M5 18.5h8'/></svg>");
+}
+#bookmarks-button {
+  --icon: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linejoin='round'><path d='M7 4.5h10v15l-5-3.8-5 3.8z'/></svg>");
+}
+#history-button {
+  --icon: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='7.5'/><path d='M12 8v4.5l3 2'/></svg>");
+}
+/* Buttons turned off in the strip setting (right-click the strip). */
+[strip-off] {
+  display: none !important;
+}
 .tab-speaker {
   --icon: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'><path d='M4.5 9.5v5h3.5l4.5 4v-13l-4.5 4z'/><path d='M16 9a4 4 0 0 1 0 6M18.5 6.5a7.5 7.5 0 0 1 0 11'/></svg>");
 }
@@ -1045,4 +1061,60 @@ body {
 :root[inDOMFullscreen] #strip,
 :root[inDOMFullscreen] #bottom {
   display: none;
+}
+
+/* ---- The right-click menu: the same floating look as the panels
+   (theme background, hairline, small round corners, one soft
+   shadow), with the hovered item in a faint wash instead of the
+   system highlight. ---- */
+#seijaku-menu {
+  appearance: none;
+  --panel-background-color: var(--bar-bg);
+  --panel-text-color: var(--fg);
+  --panel-border-color: var(--line);
+  --panel-border-radius: 8px;
+  --panel-padding: 4px;
+  --panel-box-shadow-margin: 18px;
+  --panel-box-shadow: 0 4px 12px rgba(0, 0, 0, 0.26), 0 1px 3px rgba(0, 0, 0, 0.18);
+  --panel-separator-color: var(--line);
+  --menuitem-padding-block: 5px;
+  --menuitem-padding-inline: 10px;
+  --menuitem-border-radius: 4px;
+  color: var(--fg);
+  font: calc(var(--font-size) + 1px) var(--font);
+}
+#seijaku-menu > menuitem {
+  min-width: 180px;
+  color: var(--fg);
+}
+#seijaku-menu > menuitem[_moz-menuactive]:not([disabled]) {
+  background-color: var(--wash-strong);
+  color: var(--tab-selected-fg);
+}
+#seijaku-menu > menuitem[disabled] {
+  color: var(--muted);
+  opacity: 0.6;
+}
+#seijaku-menu > menuitem[_moz-menuactive][disabled] {
+  background-color: transparent;
+}
+
+/* The note shown when a page goes full screen. */
+#fullscreen-note {
+  --panel-background-color: var(--bar-bg);
+  --panel-text-color: var(--fg);
+  --panel-border-color: var(--line);
+  --panel-border-radius: 8px;
+  --panel-padding: 0;
+  --panel-box-shadow-margin: 18px;
+  --panel-box-shadow: 0 4px 12px rgba(0, 0, 0, 0.26), 0 1px 3px rgba(0, 0, 0, 0.18);
+  pointer-events: none;
+}
+#fullscreen-note-text {
+  width: 340px;
+  box-sizing: border-box;
+  padding: 9px 14px;
+  text-align: center;
+  color: var(--fg);
+  font: calc(var(--font-size) + 1px) var(--font);
 }
