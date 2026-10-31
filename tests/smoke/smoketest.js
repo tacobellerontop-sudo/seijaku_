@@ -66,6 +66,23 @@
     return tab;
   }
 
+  /** Synthesizes mouse events at x, y inside a page's <browser>. The
+      window routes them to the page like a real click. Current Gecko
+      has Window.synthesizeMouseEvent; older ones windowUtils'
+      sendMouseEvent. */
+  function pageMouse(browser, events) {
+    let rect = browser.getBoundingClientRect();
+    for (let [type, x, y, button] of events) {
+      let cx = rect.left + x;
+      let cy = rect.top + y;
+      if (typeof window.synthesizeMouseEvent == "function") {
+        window.synthesizeMouseEvent(type, cx, cy, { button, clickCount: 1 });
+      } else {
+        window.windowUtils.sendMouseEvent(type, cx, cy, button, 1, 0);
+      }
+    }
+  }
+
   /** Answers the next permission prompt the shell puts up. */
   async function answerPrompt(type, allow) {
     await waitFor(`a ${type} prompt`, () => Seijaku._permActive?.type == type);
@@ -103,10 +120,14 @@
 
     await check("engine page actors are registered", () => {
       let wg = tab.browser.browsingContext.currentWindowGlobal;
-      for (let name of ["Select", "Finder", "UAWidgets", "AudioPlayback", "SeijakuReader"]) {
+      let names = [
+        "Select", "Finder", "UAWidgets", "AudioPlayback", "SeijakuReader",
+        "SeijakuContextMenu", "SeijakuLink", "SeijakuFullscreen",
+      ];
+      for (let name of names) {
         wg.getActor(name);
       }
-      return "Select, Finder, UAWidgets, AudioPlayback, SeijakuReader";
+      return names.join(", ");
     });
 
     await check("a page's icon reaches its tab", async () => {
@@ -208,6 +229,90 @@
       await waitFor("requestPermission", () => n.title != "notify:waiting" && n.title.startsWith("notify:"));
       assert(n.title == "notify:granted", n.title);
       Seijaku.closeTab(n);
+    });
+
+    await check("strip buttons follow the setting", () => {
+      let before = Services.prefs.getStringPref("seijaku.strip.buttons");
+      try {
+        assert(document.getElementById("nav-home").hasAttribute("strip-off"), "Home shows by default");
+        assert(!document.getElementById("downloads-button").hasAttribute("strip-off"), "Downloads hidden by default");
+        Seijaku.setStripButton("home", true);
+        Seijaku.setStripButton("downloads", false);
+        assert(!document.getElementById("nav-home").hasAttribute("strip-off"), "Home did not appear");
+        assert(document.getElementById("downloads-button").hasAttribute("strip-off"), "Downloads did not hide");
+        assert(Seijaku.stripButtons().some(b => b.key == "home" && b.shown), "the Settings list disagrees");
+      } finally {
+        Services.prefs.setStringPref("seijaku.strip.buttons", before);
+      }
+      assert(!document.getElementById("downloads-button").hasAttribute("strip-off"), "Downloads did not come back");
+    });
+
+    await check("the page menu offers the right items", async () => {
+      let popup = document.getElementById("seijaku-menu");
+      let labels = async data => {
+        let shown = new Promise(r => popup.addEventListener("popupshown", r, { once: true }));
+        Seijaku.showPageMenu(tab.browser, { screenX: 100, screenY: 100, commands: {}, editFlags: 0, ...data }, null);
+        await shown;
+        let out = [...popup.children].map(el => el.getAttribute("label") || "-");
+        let hidden = new Promise(r => popup.addEventListener("popuphidden", r, { once: true }));
+        popup.hidePopup();
+        await hidden;
+        return out;
+      };
+      let link = await labels({ link: BASE + "article.html" });
+      assert(link.includes("Open link in new tab") && link.includes("Copy link address"), link.join("|"));
+      let page = await labels({ docURL: BASE + "article.html" });
+      assert(page.includes("Back") && page.includes("View page source"), page.join("|"));
+      let edit = await labels({ editFlags: 0x1 | 0x8, commands: { cmd_paste: true } });
+      assert(edit.includes("Paste") && edit.includes("Select all"), edit.join("|"));
+      let image = await labels({ image: BASE + "icon.svg", selection: "needle" });
+      assert(image.includes("Save image as…") && image.some(l => l.startsWith("Search for")), image.join("|"));
+      return `${link.length}, ${page.length}, ${edit.length}, ${image.length} items`;
+    });
+
+    await check("right-click on a page link opens the menu", async () => {
+      let links = await openAndLoad("links.html");
+      let popup = document.getElementById("seijaku-menu");
+      let shown = new Promise(r => popup.addEventListener("popupshown", r, { once: true }));
+      await waitFor("the page menu", async () => {
+        pageMouse(links.browser, [["contextmenu", 40, 40, 2]]);
+        return Promise.race([shown.then(() => true), sleep(1000).then(() => false)]);
+      });
+      let labels = [...popup.children].map(el => el.getAttribute("label") || "-");
+      popup.hidePopup();
+      assert(labels.includes("Open link in new tab"), labels.join("|"));
+      Seijaku.closeTab(links);
+      return labels.join(" | ");
+    });
+
+    await check("middle-click on a link opens a background tab", async () => {
+      let links = await openAndLoad("links.html");
+      let before = Seijaku.tabs.length;
+      let target = BASE + "article.html?from=links";
+      let tries = 0;
+      await waitFor("a new tab for the link", () => {
+        if (Seijaku.tabs.length == before && tries++ % 10 == 0) {
+          pageMouse(links.browser, [["mousedown", 40, 40, 1], ["mouseup", 40, 40, 1]]);
+        }
+        return Seijaku.tabs.some(t => t.url == target);
+      });
+      let opened = Seijaku.tabs.find(t => t.url == target);
+      assert(Seijaku.selected === links, "the new tab took the focus");
+      assert(Seijaku.tabs.indexOf(opened) == Seijaku.tabs.indexOf(links) + 1, "the new tab is not beside its page");
+      Seijaku.closeTab(opened);
+      Seijaku.closeTab(links);
+    });
+
+    await check("a page can go full screen and back", async () => {
+      let fs = Seijaku.openTab(BASE + "fullscreen.html");
+      await waitFor("the page to go full screen", () => fs.title != "fs:waiting" && fs.title.startsWith("fs:"));
+      assert(fs.title == "fs:ok", fs.title);
+      assert(document.fullscreenElement === fs.browser, "the window did not make the page fullscreen");
+      assert(document.documentElement.hasAttribute("inDOMFullscreen"), "the strip did not step away");
+      await document.exitFullscreen();
+      await waitFor("the page to leave full screen", () => fs.title == "fs:exited");
+      await waitFor("the strip to come back", () => !document.documentElement.hasAttribute("inDOMFullscreen"));
+      Seijaku.closeTab(fs);
     });
 
     await check("history, bookmark and session are saved atomically", async () => {

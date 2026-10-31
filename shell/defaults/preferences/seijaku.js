@@ -20,6 +20,7 @@ pref("seijaku.weather.city", "Singapore");     // geocoded once, then stored as 
 pref("seijaku.weather.lat", "");               // filled on first weather fetch
 pref("seijaku.weather.lon", "");
 pref("seijaku.tabs.icons", true);         // site icons in tabs (Settings); private windows never show them
+pref("seijaku.strip.buttons", "back,forward,reload,new,undo,bookmark,downloads,security,extensions,permissions,menu"); // shown strip buttons (Settings, or right-click the strip); home, reader, bookmarks and history are off by default
 pref("seijaku.chrome.autohide", false);   // hide the strip, keep only the reveal strip at the placement edge (Settings)
 pref("seijaku.download.folder", "");   // custom download folder (Settings); empty means the system Downloads folder
 pref("seijaku.download.ask", false);   // ask where to save each file (Settings)
