@@ -53,6 +53,19 @@
     return tab;
   }
 
+  /** Synthesizes mouse events inside a web page's own process, the way
+      the engine's tests do (a chrome-side event does not reach a
+      headless remote page): a frame script calls the page's
+      windowUtils, so the page sees trusted events at x, y. */
+  function pageMouse(browser, events) {
+    let code = `(${(list => {
+      for (let [type, x, y, button, modifiers] of list) {
+        content.windowUtils.sendMouseEvent(type, x, y, button, 1, modifiers || 0);
+      }
+    }).toString()})(${JSON.stringify(events)});`;
+    browser.messageManager.loadFrameScript("data:," + encodeURIComponent(code), false);
+  }
+
   /** Answers the next permission prompt the shell puts up. */
   async function answerPrompt(type, allow) {
     await waitFor(`a ${type} prompt`, () => Seijaku._permActive?.type == type);
@@ -244,11 +257,8 @@
       let links = await openAndLoad("links.html");
       let popup = document.getElementById("seijaku-menu");
       let shown = new Promise(r => popup.addEventListener("popupshown", r, { once: true }));
-      let rect = links.browser.getBoundingClientRect();
-      await waitFor("the link to be painted", async () => {
-        window.windowUtils.sendMouseEvent("mousedown", rect.left + 40, rect.top + 40, 2, 1, 0);
-        window.windowUtils.sendMouseEvent("mouseup", rect.left + 40, rect.top + 40, 2, 1, 0);
-        window.windowUtils.sendMouseEvent("contextmenu", rect.left + 40, rect.top + 40, 2, 1, 0);
+      await waitFor("the page menu", async () => {
+        pageMouse(links.browser, [["contextmenu", 40, 40, 2]]);
         return Promise.race([shown.then(() => true), sleep(1000).then(() => false)]);
       });
       let labels = [...popup.children].map(el => el.getAttribute("label") || "-");
@@ -261,12 +271,11 @@
     await check("middle-click on a link opens a background tab", async () => {
       let links = await openAndLoad("links.html");
       let before = Seijaku.tabs.length;
-      let rect = links.browser.getBoundingClientRect();
       let target = BASE + "article.html?from=links";
+      let tries = 0;
       await waitFor("a new tab for the link", () => {
-        if (Seijaku.tabs.length == before) {
-          window.windowUtils.sendMouseEvent("mousedown", rect.left + 40, rect.top + 40, 1, 1, 0);
-          window.windowUtils.sendMouseEvent("mouseup", rect.left + 40, rect.top + 40, 1, 1, 0);
+        if (Seijaku.tabs.length == before && tries++ % 10 == 0) {
+          pageMouse(links.browser, [["mousedown", 40, 40, 1], ["mouseup", 40, 40, 1]]);
         }
         return Seijaku.tabs.some(t => t.url == target);
       });
