@@ -215,6 +215,132 @@
       assert(session.tabs.some(t => t.url == tab.url), "tab not in session");
       assert(!(await IOUtils.exists(dataPath + ".tmp")), "temporary file left behind");
     });
+
+    await extensionChecks();
+  }
+
+  /* Extensions: a test extension (tests/smoke/extension, installed as
+     a temporary add-on, so it needs no signature) drives the tabs,
+     windows and browserAction APIs and reports back; then uBlock
+     Origin is installed from addons.mozilla.org the way the site's
+     "Add to Firefox" button does it, and has to block an ad. */
+  async function extensionChecks() {
+    const { AddonManager } = ChromeUtils.importESModule("resource://gre/modules/AddonManager.sys.mjs");
+    const TEST_BUTTON = "ext-btn-smoke-test_seijaku_browser";
+    const UBO_BUTTON = "ext-btn-ublock0_raymondhill_net";
+    const badgeOf = id => document.getElementById(id)?.querySelector(".ext-badge")?.textContent ?? "";
+    const popupBrowser = () => document.getElementById("ext-popup-browser");
+
+    async function closePopup() {
+      document.getElementById("ext-popup-panel").hidePopup();
+      await waitFor("the popup to close", () => !popupBrowser());
+    }
+
+    await check("an extension's background page starts and its button appears", async () => {
+      let dir = Cc["@mozilla.org/file/local;1"].createInstance(Ci.nsIFile);
+      dir.initWithPath(Services.prefs.getStringPref("seijaku.smoke.extension"));
+      await AddonManager.installTemporaryAddon(dir);
+      await waitFor("the extension's button", () => document.getElementById(TEST_BUTTON));
+      await waitFor("the badge the background page sets", () => badgeOf(TEST_BUTTON) == "on");
+    });
+
+    let target;
+    await check("extension tabs and windows APIs", async () => {
+      target = await openAndLoad("ext-target.html");
+      let resultTab = await waitFor(
+        "the extension's report",
+        () => Seijaku.tabs.find(t => t.url.startsWith(BASE + "ext-result.html#")),
+        30000
+      );
+      let report = JSON.parse(decodeURIComponent(resultTab.url.split("#")[1]));
+      Seijaku.closeTab(resultTab);
+      let failed = Object.entries(report).filter(([, v]) => !v.startsWith("ok"));
+      assert(Object.keys(report).length >= 8, `only ${Object.keys(report).length} results`);
+      assert(!failed.length, failed.map(([k, v]) => `${k}: ${v}`).join("; "));
+      return Object.keys(report).join(", ");
+    });
+
+    await check("an extension's badge and popup in the strip", async () => {
+      Seijaku.selectTab(target);
+      await waitFor("the tab's own badge", () => badgeOf(TEST_BUTTON) == "42");
+      document.getElementById(TEST_BUTTON).click();
+      let popup = await waitFor("the popup page", () => popupBrowser()?.contentTitle?.startsWith("popup:") && popupBrowser(), 20000);
+      let title = popup.contentTitle;
+      await closePopup();
+      assert(title == "popup:ok", title);
+      return title;
+    });
+
+    await check("addons.mozilla.org is allowed to install extensions", () => {
+      let amo = Services.scriptSecurityManager.createContentPrincipalFromOrigin("https://addons.mozilla.org");
+      assert(
+        Services.perms.testPermissionFromPrincipal(amo, "install") == Services.perms.ALLOW_ACTION,
+        "no install permission (defaults/permissions not read)"
+      );
+      assert(AddonManager.isInstallAllowed("application/x-xpinstall", amo), "AddonManager refuses AMO");
+    });
+
+    await check("uBlock Origin installs from addons.mozilla.org, after its prompt", async () => {
+      let amo = Seijaku.openTab("https://addons.mozilla.org/en-US/firefox/addon/ublock-origin/");
+      await waitFor(
+        "addons.mozilla.org to load",
+        () => amo.browser?.currentURI?.host == "addons.mozilla.org" && !amo.el.hasAttribute("busy"),
+        60000
+      );
+      // What the site's button does through navigator.mozAddonManager.
+      let { id } = await AddonManager.webAPI.createInstall(amo.browser, {
+        url: "https://addons.mozilla.org/firefox/downloads/latest/ublock-origin/latest.xpi",
+        triggeringPrincipal: amo.browser.contentPrincipal,
+        sourceHost: "addons.mozilla.org",
+        sourceURL: amo.browser.currentURI.spec,
+      });
+      let done = AddonManager.webAPI.addonInstallDoInstall(amo.browser, id);
+      done.catch(() => {});
+      let prompt = await waitFor("the permission prompt", () => Seijaku._extPrompts?.[0], 120000);
+      assert(/uBlock/.test(prompt.title), prompt.title);
+      Seijaku.answerExtensionPrompt(true);
+      await done;
+      let addon = await AddonManager.getAddonByID("uBlock0@raymondhill.net");
+      assert(addon?.isActive, "uBlock Origin is not active");
+      Seijaku.closeTab(amo);
+      return `${addon.version}; prompt listed ${prompt.lines.length} permissions`;
+    });
+
+    let ads;
+    await check("uBlock Origin blocks an ad and counts it on its badge", async () => {
+      await waitFor("uBlock Origin's button", () => document.getElementById(UBO_BUTTON), 30000);
+      // Its filter lists compile on first run; until then, try again.
+      await waitFor(
+        "the ad script to be blocked",
+        async () => {
+          if (ads) {
+            Seijaku.closeTab(ads);
+          }
+          ads = await openAndLoad("ads.html");
+          await sleep(500);
+          return ads.title == "ads:blocked";
+        },
+        120000
+      );
+      let badge = await waitFor("a blocked count on the badge", () => /^[1-9]\d*$/.test(badgeOf(UBO_BUTTON)) && badgeOf(UBO_BUTTON), 20000);
+      return `badge ${badge}`;
+    });
+
+    await check("uBlock Origin's popup opens", async () => {
+      Seijaku.selectTab(ads);
+      document.getElementById(UBO_BUTTON).click();
+      let popup = await waitFor(
+        "the popup to lay out",
+        () => {
+          let b = popupBrowser();
+          return b?.currentURI?.spec.includes("popup") && parseInt(b.style.width) > 160 && b;
+        },
+        30000
+      );
+      let size = `${popup.style.width} × ${popup.style.height}`;
+      await closePopup();
+      return size;
+    });
   }
 
   window.addEventListener("load", () => {

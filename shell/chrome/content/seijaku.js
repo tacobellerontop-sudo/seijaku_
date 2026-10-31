@@ -158,10 +158,24 @@ class Tab {
       this.iconEl.removeAttribute("src");
       this.iconEl.hidden = true;
     }
+    Seijaku.tabEvent("TabAttrModified", this, { changed: ["image"] });
   }
 
   get asleep() {
     return !this.browser;
+  }
+
+  // The names the engine's extension code reads off a tab: its
+  // browser, and "pending" for a tab that has no page loaded.
+  get linkedBrowser() {
+    return this.browser;
+  }
+
+  getAttribute(name) {
+    if (name == "pending") {
+      return this.asleep ? "true" : null;
+    }
+    return this.el.getAttribute(name);
   }
 
   update() {
@@ -203,7 +217,6 @@ var Seijaku = {
   // The extension host, once AddonManager has started.
   _AddonManager: null,
   _extReady: false,
-  _extPopupFor: null,
   _messageTimer: null,
   _pendingUpdate: null,
   _stagedUpdate: null,
@@ -1802,9 +1815,11 @@ var Seijaku = {
       let after = vertical
         ? event.clientY > rect.top + rect.height / 2
         : event.clientX > rect.left + rect.width / 2;
-      this.tabs.splice(this.tabs.indexOf(tab), 1);
+      let fromIndex = this.tabs.indexOf(tab);
+      this.tabs.splice(fromIndex, 1);
       this.tabs.splice(this.tabs.indexOf(over) + (after ? 1 : 0), 0, tab);
       this.placeTabEl(tab);
+      this.tabEvent("TabMove", tab, { fromIndex, toIndex: this.tabs.indexOf(tab) });
     };
     let up = () => {
       window.removeEventListener("mousemove", move, true);
@@ -1891,7 +1906,7 @@ var Seijaku = {
     this.togglePin(tab);
   },
 
-  togglePin(tab) {
+  togglePin(tab, { quiet = false } = {}) {
     if (!tab) {
       return;
     }
@@ -1899,17 +1914,27 @@ var Seijaku = {
     tab.update();
     this.orderTabs();
     this.saveSession();
-    this.showMessage(tab.pinned ? "Tab pinned — it stays first and can't be closed until unpinned" : "Tab unpinned");
+    this.tabEvent("TabAttrModified", tab, { changed: ["pinned"] });
+    if (!quiet) {
+      this.showMessage(tab.pinned ? "Tab pinned — it stays first and can't be closed until unpinned" : "Tab unpinned");
+    }
   },
 
   /** Pinned tabs first, otherwise the order they were opened in. */
   orderTabs() {
+    let before = this.tabs.slice();
     let pinned = this.tabs.filter(t => t.pinned);
     let rest = this.tabs.filter(t => !t.pinned);
     this.tabs = [...pinned, ...rest];
     for (let tab of this.tabs) {
       this.$tabbar.append(tab.el);
     }
+    this.tabs.forEach((tab, toIndex) => {
+      let fromIndex = before.indexOf(tab);
+      if (fromIndex != toIndex) {
+        this.tabEvent("TabMove", tab, { fromIndex, toIndex });
+      }
+    });
   },
 
   // -------------------------------------------------------------- command palette
@@ -3123,6 +3148,7 @@ var Seijaku = {
       this.activate(tab);
     }
     tab.update();
+    this.tabEvent("TabBrowserInserted", tab, { onCreation: !!tab._opening });
     return b;
   },
 
@@ -3165,6 +3191,7 @@ var Seijaku = {
         } catch (e) { /* no host before */ }
         tab.url = displayURL(location.spec);
         tab.title = b.contentTitle || "";
+        Seijaku.tabEvent("TabAttrModified", tab, { changed: ["label"] });
         let newHost = "";
         try {
           newHost = location.host;
@@ -3224,6 +3251,7 @@ var Seijaku = {
     b.addEventListener("pagetitlechanged", () => {
       tab.title = b.contentTitle || "";
       tab.update();
+      Seijaku.tabEvent("TabAttrModified", tab, { changed: ["label"] });
       Seijaku.recordHistoryTitle(tab.url, tab.title);
       if (tab === Seijaku.selected) {
         Seijaku.updateTitle();
@@ -3277,6 +3305,8 @@ var Seijaku = {
       : this.tabs.length);
     this.tabs.splice(index, 0, tab);
     this.placeTabEl(tab);
+    tab._opening = true;
+    this.tabEvent("TabOpen", tab);
     if (options.asleep) {
       // A restored tab: no page loaded until it is clicked. This is the
       // lightest possible restore: ten tabs cost almost nothing at start.
@@ -3288,6 +3318,7 @@ var Seijaku = {
         this.load(b, tab.url, options);
       }
     }
+    tab._opening = false;
     if (!options.asleep && (!options.background || !this.selected)) {
       this.selectTab(tab);
     }
@@ -3300,6 +3331,31 @@ var Seijaku = {
       this.tabs[this.tabs.indexOf(tab) + 1]?.el ??
       document.getElementById("tab-new");
     this.$tabbar.insertBefore(tab.el, next?.parentNode == this.$tabbar ? next : null);
+  },
+
+  /** Moves a tab to another place in the strip (extensions use this).
+      Pinned tabs stay first, so the place is kept within its kind. */
+  moveTab(tab, index) {
+    let from = this.tabs.indexOf(tab);
+    let pinned = this.tabs.filter(t => t.pinned).length;
+    let [lo, hi] = tab.pinned ? [0, pinned - 1] : [pinned, this.tabs.length - 1];
+    let to = Math.max(lo, Math.min(index, hi));
+    if (from < 0 || from == to) {
+      return;
+    }
+    this.tabs.splice(from, 1);
+    this.tabs.splice(to, 0, tab);
+    this.placeTabEl(tab);
+    this.tabEvent("TabMove", tab, { fromIndex: from, toIndex: to });
+    this.saveSession();
+  },
+
+  /** Tells the extension system (ext/ext-seijaku.js) what happened to
+      a tab. Nothing listens unless an extension asks to. */
+  tabEvent(type, tab, detail = {}) {
+    try {
+      window.dispatchEvent(new CustomEvent("Seijaku" + type, { detail: { tab, ...detail } }));
+    } catch (e) { /* an extension listener failed; the tab is fine */ }
   },
 
   load(browser, url, { triggeringPrincipal } = {}) {
@@ -3362,6 +3418,9 @@ var Seijaku = {
     this.selected = tab;
     tab.lastActive = Date.now();
     tab.el.setAttribute("selected", "true");
+    if (previous !== tab) {
+      this.tabEvent("TabSelect", tab, { previous });
+    }
     tab.el.scrollIntoView({ block: "nearest", inline: "nearest" });
     if (tab.asleep) {
       this.wake(tab);
@@ -3372,13 +3431,14 @@ var Seijaku = {
     this.updateNavButtons();
   },
 
-  closeTab(tab = this.selected) {
+  closeTab(tab = this.selected, { force = false } = {}) {
     if (!tab) {
       return;
     }
     // A pinned tab cannot be closed by any means until it is
-    // unpinned — double-click, middle-click, and Ctrl+W alike.
-    if (tab.pinned) {
+    // unpinned — double-click, middle-click, and Ctrl+W alike. Only
+    // an extension (tabs.remove) or its own pages closing may.
+    if (tab.pinned && !force) {
       this.showMessage("That tab is pinned — unpin it first (Ctrl+Shift+P)");
       return;
     }
@@ -3394,6 +3454,7 @@ var Seijaku = {
       this.closed.shift();
     }
     this.updateUndoButton();
+    this.tabEvent("TabClose", tab);
     this.tabs.splice(index, 1);
     tab.el.remove();
     tab.browser?.remove();
@@ -3557,6 +3618,7 @@ var Seijaku = {
     tab.el.toggleAttribute("muted", muted);
     tab.el.toggleAttribute("sound", !!tab._soundPlaying);
     tab.speakerEl.title = muted ? "Unmute this tab" : "Mute this tab";
+    this.tabEvent("TabAttrModified", tab, { changed: ["muted", "soundplaying"] });
   },
 
   /** Clicking the speaker mark mutes or unmutes that tab. */
@@ -3605,15 +3667,16 @@ var Seijaku = {
     tab.browser.remove();
     tab.browser = null;
     tab.update();
+    this.tabEvent("TabBrowserDiscarded", tab);
     return true;
   },
 
-  wake(tab) {
+  wake(tab, { triggeringPrincipal } = {}) {
     if (!tab.asleep) {
       return;
     }
     let b = this.attachBrowser(tab, {});
-    this.load(b, tab.url);
+    this.load(b, tab.url, { triggeringPrincipal });
   },
 
   sleepIdleTabs() {
@@ -3990,27 +4053,31 @@ var Seijaku = {
 
   // -------------------------------------------------------------- extensions
   //
-  // A real, minimal extension host. At startup the shell starts the
-  // engine's AddonManager, which loads enabled extensions from the
-  // profile; background scripts, storage, tabs, and webRequest
-  // blocking then work the way they do in Firefox, because they are
-  // engine-level. The manager page (seijaku:extensions) lists them
-  // with enable/disable/remove and install-from-file. A navigation
-  // to a .xpi file installs it; .crx stays refused (see load).
-  // BrowserAction buttons: for each enabled extension the shell
-  // reads its manifest (through the extension's own moz-extension
-  // origin, which the shell's system principal may load) and, when
-  // it declares a browser_action, puts a button in the strip; the
-  // button opens the action's popup in a panel. If any of that
-  // fails, the extension still runs headless — blocking does not
-  // need a button.
-  // UNVERIFIED ON WINDOWS: this is the riskiest item in the batch.
-  // AddonManager.startup in a bare shell, the tabs API's view of a
-  // seijaku:main window, and popup rendering can only be proven by
-  // installing uBlock Origin on Windows. Every step is guarded, so
-  // a missing extension system leaves startup untouched.
+  // The engine's own extension host, with the parts Firefox keeps in
+  // its front end supplied by Seijaku:
+  // - the tabs, windows and browserAction APIs (shell/chrome/content/
+  //   ext/), which draw each extension's button, badge and popup in the
+  //   strip and see Seijaku's tabs through the events tabEvent sends;
+  // - start-up and install prompts (SeijakuExtensions.sys.mjs): the
+  //   notifications that let background pages run, and the questions
+  //   an install asks, answered by showExtensionPrompt below.
+  // Installs come from addons.mozilla.org (allowed by
+  // defaults/permissions), a .xpi link or address, or a file picked on
+  // seijaku:extensions; every one shows the extension's permissions
+  // first. Extensions must be signed by Mozilla, as in Firefox.
+  // .crx files stay refused (see load). Every step is guarded, so a
+  // missing extension system leaves startup untouched.
 
   async initExtensions() {
+    try {
+      let SeijakuExtensions = ChromeUtils.importESModule("resource://seijaku/SeijakuExtensions.sys.mjs");
+      SeijakuExtensions.register();
+      // After the first paint, as Firefox does: extension background
+      // pages wait for this before they start.
+      setTimeout(() => SeijakuExtensions.windowReady(window), 0);
+    } catch (e) {
+      console.error("Seijaku: starting extension support", e);
+    }
     try {
       let { AddonManager } = ChromeUtils.importESModule(
         "resource://gre/modules/AddonManager.sys.mjs"
@@ -4018,15 +4085,6 @@ var Seijaku = {
       this._AddonManager = AddonManager;
       await AddonManager.startup();
       this._extReady = true;
-      try {
-        AddonManager.addAddonListener({
-          onInstalled: () => this.refreshExtensionButtons().catch(() => {}),
-          onUninstalled: () => this.refreshExtensionButtons().catch(() => {}),
-          onEnabled: () => this.refreshExtensionButtons().catch(() => {}),
-          onDisabled: () => this.refreshExtensionButtons().catch(() => {}),
-        });
-      } catch (e) { /* buttons just won't auto-refresh */ }
-      this.refreshExtensionButtons().catch(() => {});
     } catch (e) {
       this._extReady = false;
     }
@@ -4035,14 +4093,17 @@ var Seijaku = {
   async getExtensions() {
     try {
       let addons = await this._AddonManager.getAddonsByTypes(["extension"]);
-      return addons.map(a => ({
-        id: a.id,
-        name: a.name,
-        version: a.version,
-        description: a.description || "",
-        enabled: !a.userDisabled,
-        iconURL: a.iconURL || "",
-      }));
+      return addons
+        .filter(a => !a.hidden)
+        .map(a => ({
+          id: a.id,
+          name: a.name,
+          version: a.version,
+          description: a.description || "",
+          enabled: !a.userDisabled,
+          iconURL: a.iconURL || "",
+          hasOptions: !!a.optionsURL,
+        }));
     } catch (e) {
       return [];
     }
@@ -4059,9 +4120,8 @@ var Seijaku = {
   async setExtensionEnabled(id, enabled) {
     let addon = await this.extensionById(id);
     if (addon) {
-      addon.userDisabled = !enabled;
+      await (enabled ? addon.enable() : addon.disable());
     }
-    this.refreshExtensionButtons().catch(() => {});
   },
 
   async uninstallExtension(id) {
@@ -4069,7 +4129,26 @@ var Seijaku = {
     if (addon) {
       await addon.uninstall();
     }
-    this.refreshExtensionButtons().catch(() => {});
+  },
+
+  /** The extension's options page, in a tab of its own. */
+  async openExtensionOptions(id) {
+    let addon = await this.extensionById(id);
+    if (!addon?.optionsURL) {
+      return;
+    }
+    let existing = this.tabs.find(t => t.browser?.currentURI?.spec == addon.optionsURL);
+    if (existing) {
+      this.selectTab(existing);
+      return;
+    }
+    this.openTab(addon.optionsURL, {
+      afterCurrent: true,
+      triggeringPrincipal: Services.scriptSecurityManager.createContentPrincipal(
+        Services.io.newURI(addon.optionsURL),
+        {}
+      ),
+    });
   },
 
   async installExtensionFromFile() {
@@ -4086,121 +4165,124 @@ var Seijaku = {
       // dismissed picker as a non-error, not a failure.
       throw new Error("Install cancelled — no file chosen");
     }
-    return this.installExtensionFile(picker.file);
+    let install = await this._AddonManager.getInstallForFile(picker.file, null, {
+      source: "file-url",
+    });
+    return this.runInstall(install, Services.io.newFileURI(picker.file));
   },
 
-  async installExtensionFile(file) {
-    let install = await this._AddonManager.getInstallForFile(file);
-    await install.install();
-    await this.refreshExtensionButtons().catch(() => {});
-    return install.addon?.name || file.leafName || "Extension";
-  },
-
+  /** A .xpi typed, bookmarked or opened by the shell (links clicked
+      inside a page go through the engine's own web-install path). */
   async installXpiUrl(url) {
-    this.showMessage("Installing extension…");
     try {
-      let tmp = Services.dirsvc.get("TmpD", Ci.nsIFile);
-      let file = tmp.clone();
-      file.append("seijaku-extension.xpi");
-      await this.downloadToFile(url, file);
-      let name = await this.installExtensionFile(file);
-      this.showMessage(`Installed ${name}`);
+      let install = await this._AddonManager.getInstallForURL(url, {
+        telemetryInfo: { source: "unknown" },
+      });
+      await this.runInstall(install, Services.io.newURI(url));
     } catch (e) {
-      this.showMessage(`Couldn't install that extension: ${e.message}`, "error");
+      if (!/cancel/i.test(e?.message || "")) {
+        this.showMessage(`Couldn't install that extension: ${e.message}`, "error");
+      }
     }
   },
 
-  /** The extension's browser_action, if it declares one. */
-  async extensionBrowserAction(addon) {
-    try {
-      let { ExtensionPolicyService } = ChromeUtils.importESModule(
-        "resource://gre/modules/ExtensionPolicyService.sys.mjs"
-      );
-      let policy = ExtensionPolicyService.getExtensionPolicy(addon.id);
-      let host = policy?.mozExtensionHostname;
-      if (!host) {
-        return null;
-      }
-      let manifest = await (await fetch(`moz-extension://${host}/manifest.json`)).json();
-      let action = manifest.browser_action || manifest.action;
-      if (!action) {
-        return null;
-      }
-      let icon = action.default_icon;
-      if (icon && typeof icon == "object") {
-        icon = icon[48] || icon[32] || icon[16] || Object.values(icon)[0];
-      }
-      return {
-        icon: icon ? `moz-extension://${host}/${icon}` : "",
-        popup: action.default_popup ? `moz-extension://${host}/${action.default_popup}` : "",
-        title: action.default_title || addon.name,
-      };
-    } catch (e) {
-      return null;
-    }
+  /** Runs an install with the permission prompt, the way Firefox's
+      "Install Add-on From File" does; resolves with the name. */
+  runInstall(install, uri) {
+    return new Promise((resolve, reject) => {
+      install.addListener({
+        onInstallEnded: (aInstall, addon) => resolve(addon?.name || "Extension"),
+        onInstallCancelled: () => reject(new Error("Install cancelled")),
+        onInstallFailed: () => reject(new Error(`install failed (error ${install.error})`)),
+        onDownloadFailed: () => reject(new Error(`download failed (error ${install.error})`)),
+        onDownloadCancelled: () => reject(new Error("Install cancelled")),
+      });
+      this._AddonManager.installAddonFromAOM(this.selectedBrowser || null, uri, install);
+    });
   },
 
-  async refreshExtensionButtons() {
-    let container = document.getElementById("ext-buttons");
-    if (!container) {
+  // The extension prompt: a panel under the strip, like the site
+  // permission prompt, asking whether to add an extension (with what
+  // it will be able to do) or answering any other install question.
+  // Questions queue; each gets exactly one answer, and closing the
+  // panel any other way counts as Cancel.
+  initExtensionPrompt() {
+    let panel = document.getElementById("ext-prompt-panel");
+    if (!panel || this._extPromptReady) {
       return;
     }
-    container.replaceChildren();
-    if (!this._extReady) {
-      return;
-    }
-    let addons = [];
-    try {
-      addons = (await this._AddonManager.getAddonsByTypes(["extension"])).filter(a => !a.userDisabled);
-    } catch (e) {
-      return;
-    }
-    for (let addon of addons) {
-      let action = await this.extensionBrowserAction(addon);
-      if (!action) {
-        continue;
-      }
-      let button = document.createElement("button");
-      button.className = "ext-button";
-      button.title = action.title;
-      if (action.icon) {
-        let img = document.createElement("img");
-        img.src = action.icon;
-        img.alt = "";
-        button.append(img);
+    this._extPromptReady = true;
+    this._extPrompts = [];
+    document.getElementById("ext-prompt-accept").addEventListener("click", () => this.answerExtensionPrompt(true));
+    document.getElementById("ext-prompt-cancel").addEventListener("click", () => this.answerExtensionPrompt(false));
+    panel.addEventListener("popuphidden", () => {
+      if (this._extPromptHiding) {
+        // Closed after an answer; a question that arrived meanwhile
+        // still needs showing.
+        this._extPromptHiding = false;
+        this.renderExtensionPrompt();
       } else {
-        button.textContent = (addon.name || "?").slice(0, 1).toUpperCase();
+        this.answerExtensionPrompt(false);
       }
-      button.addEventListener("click", () => this.showExtensionPopup(button, action));
-      container.append(button);
+    });
+  },
+
+  showExtensionPrompt(prompt) {
+    this.initExtensionPrompt();
+    this._extPrompts.push(prompt);
+    if (this._extPrompts.length == 1) {
+      this.renderExtensionPrompt();
     }
   },
 
-  showExtensionPopup(button, action) {
-    let panel = document.getElementById("ext-popup-panel");
-    if (this._extPopupFor == button) {
-      try {
-        panel.hidePopup();
-      } catch (e) { /* already closed */ }
-      this._extPopupFor = null;
+  renderExtensionPrompt() {
+    let prompt = this._extPrompts[0];
+    if (!prompt) {
       return;
     }
-    this._extPopupFor = button;
-    if (action.popup) {
-      try {
-        document.getElementById("ext-popup-browser").setAttribute("src", action.popup);
-      } catch (e) { /* the panel opens empty */ }
+    document.getElementById("ext-prompt-title").textContent = prompt.title;
+    document.getElementById("ext-prompt-intro").textContent = prompt.intro || "";
+    let icon = document.getElementById("ext-prompt-icon");
+    icon.hidden = !prompt.icon;
+    if (prompt.icon) {
+      icon.src = prompt.icon;
+    }
+    let list = document.getElementById("ext-prompt-list");
+    list.replaceChildren(
+      ...(prompt.lines || []).map(text => {
+        let li = document.createElement("li");
+        li.textContent = text;
+        return li;
+      })
+    );
+    document.getElementById("ext-prompt-accept").textContent = prompt.accept || "Add";
+    let panel = document.getElementById("ext-prompt-panel");
+    try {
+      let width = 380;
+      let x = Math.max(0, window.screenX + Math.round((window.outerWidth - width) / 2));
+      panel.openPopupAtScreen(x, window.screenY + 48);
+    } catch (e) {
+      this.answerExtensionPrompt(false);
+    }
+  },
+
+  answerExtensionPrompt(accept) {
+    let prompt = this._extPrompts?.shift();
+    if (!prompt) {
+      return;
     }
     try {
-      panel.openPopup(button, "after_start");
+      (accept ? prompt.onAccept : prompt.onCancel)?.();
     } catch (e) {
-      this._extPopupFor = null;
+      console.error("Seijaku: answering an extension prompt", e);
     }
-    let onHidden = () => {
-      this._extPopupFor = null;
-      panel.removeEventListener("popuphidden", onHidden);
-    };
-    panel.addEventListener("popuphidden", onHidden);
+    let panel = document.getElementById("ext-prompt-panel");
+    if (this._extPrompts.length) {
+      this.renderExtensionPrompt();
+    } else if (panel.state != "closed") {
+      this._extPromptHiding = true;
+      panel.hidePopup();
+    }
   },
 
   // -------------------------------------------------------------- reader view

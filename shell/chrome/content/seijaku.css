@@ -609,12 +609,34 @@ body {
   display: none;
 }
 .ext-button {
+  position: relative;
   font-size: 13px;
 }
 .ext-button img {
   width: 16px;
   height: 16px;
   display: block;
+}
+.ext-button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+/* An extension's badge (uBlock Origin's blocked count): a small pill
+   on the button's lower edge, in the colours the extension asks for. */
+.ext-badge {
+  position: absolute;
+  inset-inline-end: 0;
+  bottom: 1px;
+  min-width: 8px;
+  padding: 0 3px;
+  border-radius: 6px;
+  font-size: 9px;
+  line-height: 12px;
+  text-align: center;
+  pointer-events: none;
+}
+.ext-badge[hidden] {
+  display: none;
 }
 
 /* ---- Auto-hide chrome: only the reveal strip at the placement edge.
@@ -807,7 +829,8 @@ body {
 #perm-panel,
 #site-panel,
 #palette-panel,
-#ext-popup-panel {
+#ext-popup-panel,
+#ext-prompt-panel {
   --panel-background-color: var(--bar-bg);
   --panel-text-color: var(--fg);
   --panel-border-color: var(--line);
@@ -951,13 +974,16 @@ body {
   white-space: nowrap;
 }
 
-/* The permission prompt and site information share one shape. */
+/* The permission prompt, site information and the extension prompt
+   share one shape. */
 #perm-panel,
-#site-panel {
+#site-panel,
+#ext-prompt-panel {
   width: 360px;
 }
 #perm-inner,
-#site-inner {
+#site-inner,
+#ext-prompt-inner {
   flex: 1;
   min-width: 0;
   padding: 16px 18px 14px;
@@ -983,7 +1009,8 @@ body {
   margin-bottom: 14px;
 }
 #perm-buttons,
-#site-buttons {
+#site-buttons,
+#ext-prompt-buttons {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
@@ -991,6 +1018,7 @@ body {
 #perm-buttons button,
 #perm-manage-close,
 #site-buttons button,
+#ext-prompt-buttons button,
 .perm-manage-row button {
   appearance: none;
   border: 1px solid var(--line);
@@ -1005,12 +1033,14 @@ body {
 #perm-buttons button:hover,
 #perm-manage-close:hover,
 #site-buttons button:hover,
+#ext-prompt-buttons button:hover,
 .perm-manage-row button:hover {
   background: var(--wash);
 }
 /* The first answer in each row is the one the eye should find. */
 #perm-allow,
-#site-close {
+#site-close,
+#ext-prompt-accept {
   border-color: var(--accent) !important;
   background: var(--accent-wash) !important;
 }
@@ -1036,9 +1066,38 @@ body {
   font-size: 11px;
   padding: 2px 9px;
 }
+/* The popup sizes itself to the extension's page once it loads (see
+   ext/ext-browserAction.js); this is only its size until then. */
 #ext-popup-browser {
-  width: 360px;
-  height: 480px;
+  width: 160px;
+  height: 40px;
+}
+#ext-prompt-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+#ext-prompt-icon {
+  width: 32px;
+  height: 32px;
+}
+#ext-prompt-icon[hidden] {
+  display: none;
+}
+#ext-prompt-title {
+  font-family: var(--serif);
+  font-size: 16px;
+}
+#ext-prompt-intro {
+  color: var(--muted);
+}
+#ext-prompt-list {
+  margin: 6px 0 14px;
+  padding-inline-start: 18px;
+  line-height: 1.6;
+  max-height: 240px;
+  overflow-y: auto;
 }
 
 /* Page fullscreen (videos): only the page. */

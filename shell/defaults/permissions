@@ -1,0 +1,4 @@
+# Default site permissions (read through permissions.manager.defaultsUrl).
+# addons.mozilla.org may install extensions, as in Firefox; every
+# install still shows its permissions and asks first.
+origin	install	1	https://addons.mozilla.org

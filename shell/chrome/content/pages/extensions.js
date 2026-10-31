@@ -1,7 +1,8 @@
 /* Extensions manager: lists what the shell reports from AddonManager
    and asks the shell to enable, disable, remove or install an
-   extension. The page itself never touches AddonManager or Components
-   directly — every operation goes through the shell methods, and
+   extension. The page itself only listens to AddonManager (so the list
+   follows installs made elsewhere); every operation goes through the
+   shell methods, and
    every failure lands in the visible error line instead of breaking
    the page. */
 
@@ -133,12 +134,42 @@ async function render() {
       }
     });
     actions.append(toggle, remove);
+    if (ext.hasOptions && ext.enabled) {
+      let options = document.createElement("button");
+      options.type = "button";
+      options.textContent = "Options";
+      options.addEventListener("click", () => {
+        shell.openExtensionOptions(ext.id).catch(error => {
+          showError(`Could not open the options of “${ext.name || ext.id}”: ${errorMessage(error)}`);
+        });
+      });
+      actions.prepend(options);
+    }
     row.append(icon, main, actions);
     list.append(row);
   }
 }
 
 window.addEventListener("DOMContentLoaded", () => {
+  document.getElementById("get").addEventListener("click", () => {
+    getShell()?.openTab("https://addons.mozilla.org/firefox/extensions/", { afterCurrent: true });
+  });
+  // An install from addons.mozilla.org lands here too: the list
+  // follows whatever the engine adds, enables or removes.
+  try {
+    const { AddonManager } = ChromeUtils.importESModule("resource://gre/modules/AddonManager.sys.mjs");
+    const refresh = () => render().catch(() => {});
+    const listener = {
+      onInstalled: refresh,
+      onUninstalled: refresh,
+      onEnabled: refresh,
+      onDisabled: refresh,
+    };
+    AddonManager.addAddonListener(listener);
+    window.addEventListener("unload", () => AddonManager.removeAddonListener(listener));
+  } catch {
+    // The list just refreshes when the page is reopened.
+  }
   document.getElementById("install").addEventListener("click", async () => {
     let shell = getShell();
     if (!shell) {
