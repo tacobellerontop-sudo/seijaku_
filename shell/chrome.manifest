@@ -3,3 +3,6 @@ resource seijaku modules/
 content branding chrome/branding/
 locale branding en-US chrome/branding/
 category l10n-registry 5-seijaku resource://app/localization/{locale}/
+category webextension-modules seijaku chrome://seijaku/content/ext/ext-seijaku.json
+category webextension-scripts c-seijaku chrome://seijaku/content/ext/ext-seijaku.js
+category webextension-scripts-addon seijaku chrome://seijaku/content/ext/ext-c-seijaku.js

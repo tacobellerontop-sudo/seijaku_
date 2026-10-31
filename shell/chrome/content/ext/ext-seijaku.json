@@ -1,0 +1,21 @@
+{
+  "browserAction": {
+    "url": "chrome://seijaku/content/ext/ext-browserAction.js",
+    "schema": "chrome://extensions/content/schemas/browser_action.json",
+    "scopes": ["addon_parent"],
+    "manifest": ["browser_action", "action"],
+    "paths": [["browserAction"], ["action"]]
+  },
+  "tabs": {
+    "url": "chrome://seijaku/content/ext/ext-tabs.js",
+    "schema": "chrome://seijaku/content/ext/schemas/tabs.json",
+    "scopes": ["addon_parent"],
+    "paths": [["tabs"]]
+  },
+  "windows": {
+    "url": "chrome://seijaku/content/ext/ext-windows.js",
+    "schema": "chrome://seijaku/content/ext/schemas/windows.json",
+    "scopes": ["addon_parent"],
+    "paths": [["windows"]]
+  }
+}

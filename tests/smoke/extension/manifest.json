@@ -1,0 +1,13 @@
+{
+  "manifest_version": 2,
+  "name": "Seijaku smoke test",
+  "version": "1.0",
+  "description": "Exercises Seijaku's tabs, windows and browserAction APIs in the Windows smoke test. Never shipped.",
+  "browser_specific_settings": { "gecko": { "id": "smoke-test@seijaku.browser" } },
+  "permissions": ["tabs", "<all_urls>"],
+  "background": { "scripts": ["background.js"] },
+  "content_scripts": [
+    { "matches": ["http://127.0.0.1/*"], "include_globs": ["*ext-target.html*"], "js": ["content.js"] }
+  ],
+  "browser_action": { "default_title": "Smoke test", "default_popup": "popup.html" }
+}

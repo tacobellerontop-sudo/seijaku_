@@ -114,10 +114,25 @@
         </div>
       </div>
     </xul:panel>
-    <!-- Extension browserAction popups render here, anchored to
-         their strip button. -->
-    <xul:panel id="ext-popup-panel">
-      <xul:browser id="ext-popup-browser" type="content" />
+    <!-- Extension popups render here, anchored to their strip
+         button. The <browser> inside is made when a popup opens and
+         removed when it closes (see ext/ext-browserAction.js). -->
+    <xul:panel id="ext-popup-panel"></xul:panel>
+    <!-- Extension installs: what an extension will be able to do,
+         asked before it is added (see showExtensionPrompt). -->
+    <xul:panel id="ext-prompt-panel" noautohide="true">
+      <div id="ext-prompt-inner">
+        <div id="ext-prompt-head">
+          <img id="ext-prompt-icon" alt="" hidden="hidden" />
+          <div id="ext-prompt-title"></div>
+        </div>
+        <div id="ext-prompt-intro"></div>
+        <ul id="ext-prompt-list"></ul>
+        <div id="ext-prompt-buttons">
+          <button id="ext-prompt-cancel" type="button">Cancel</button>
+          <button id="ext-prompt-accept" type="button">Add</button>
+        </div>
+      </div>
     </xul:panel>
     <!-- Site information, opened from the security lock: host,
          connection state, this site's permission decisions, and a

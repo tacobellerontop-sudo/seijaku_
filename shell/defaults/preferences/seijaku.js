@@ -115,3 +115,34 @@ pref("privacy.trackingprotection.fingerprinting.enabled", true);
 pref("privacy.trackingprotection.cryptomining.enabled", true);
 pref("network.cookie.cookieBehavior", 5);
 pref("privacy.query_stripping.enabled", true);
+
+/* Extensions. Firefox sets these in its front end's prefs, which the
+   packager drops; without them the engine falls back to developer
+   defaults. Extensions run in their own process and must be signed by
+   Mozilla, exactly as in Firefox. Installs from addons.mozilla.org are
+   allowed by shell/defaults/permissions; every install still shows its
+   permissions first. Extensions update themselves from
+   addons.mozilla.org once a day, asking as Firefox (its application id
+   is written into the update address, since addons.mozilla.org does
+   not know Seijaku's); nothing else about add-ons is fetched (no
+   recommendations, no metadata cache). */
+pref("permissions.manager.defaultsUrl", "resource://app/defaults/permissions");
+pref("extensions.webextensions.remote", true);
+pref("xpinstall.signatures.required", true);
+pref("extensions.langpacks.signatures.required", true);
+pref("extensions.postDownloadThirdPartyPrompt", true);
+pref("extensions.webextOptionalPermissionPrompts", true);
+pref("extensions.autoDisableScopes", 15);
+pref("extensions.startupScanScopes", 0);
+pref("extensions.update.enabled", true);
+pref("extensions.update.autoUpdateDefault", true);
+pref("extensions.update.interval", 86400);
+pref("extensions.update.url", "https://versioncheck.addons.mozilla.org/update/VersionCheck.php?reqVersion=%REQ_VERSION%&id=%ITEM_ID%&version=%ITEM_VERSION%&maxAppVersion=%ITEM_MAXAPPVERSION%&status=%ITEM_STATUS%&appID={ec8030f7-c20a-464f-9b0e-13a3a9e97384}&appVersion=%APP_VERSION%&appOS=%APP_OS%&appABI=%APP_ABI%&locale=%APP_LOCALE%&currentAppVersion=%CURRENT_APP_VERSION%&updateType=%UPDATE_TYPE%&compatMode=%COMPATIBILITY_MODE%");
+pref("extensions.update.background.url", "https://versioncheck-bg.addons.mozilla.org/update/VersionCheck.php?reqVersion=%REQ_VERSION%&id=%ITEM_ID%&version=%ITEM_VERSION%&maxAppVersion=%ITEM_MAXAPPVERSION%&status=%ITEM_STATUS%&appID={ec8030f7-c20a-464f-9b0e-13a3a9e97384}&appVersion=%APP_VERSION%&appOS=%APP_OS%&appABI=%APP_ABI%&locale=%APP_LOCALE%&currentAppVersion=%CURRENT_APP_VERSION%&updateType=%UPDATE_TYPE%&compatMode=%COMPATIBILITY_MODE%");
+pref("extensions.getAddons.cache.enabled", false);
+pref("extensions.systemAddon.update.enabled", false);
+pref("extensions.abuseReport.enabled", false);
+/* Read by the engine's browserAction code, which assumes Firefox's
+   toolbars exist. */
+pref("sidebar.verticalTabs", false);
+pref("browser.toolbars.bookmarks.visibility", "never");

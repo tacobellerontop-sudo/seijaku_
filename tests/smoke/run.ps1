@@ -7,7 +7,7 @@
 
 param(
     [Parameter(Mandatory)] [string] $App,
-    [int] $TimeoutSeconds = 180
+    [int] $TimeoutSeconds = 480
 )
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
@@ -24,7 +24,8 @@ $text = $text.Replace($tag, $tag + "`n  <script src=`"chrome://seijaku/content/s
 Set-Content $xhtml $text -Encoding utf8
 
 # A fresh profile with test prefs: fake camera and microphone, no
-# user-gesture rule for notifications, no network calls of our own.
+# user-gesture rule for notifications, no network calls of our own
+# (the extension checks do reach addons.mozilla.org, for uBlock Origin).
 $profile = Join-Path $env:RUNNER_TEMP 'seijaku-smoke-profile'
 Remove-Item -Recurse -Force $profile -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force $profile | Out-Null
@@ -38,6 +39,10 @@ New-Item -ItemType Directory -Force $profile | Out-Null
     'user_pref("seijaku.weather.enabled", false);',
     'user_pref("seijaku.startup", "blank");',
     'user_pref("seijaku.smoke.base", "http://127.0.0.1:8765/");',
+    "user_pref(`"seijaku.smoke.extension`", `"$((Join-Path $PSScriptRoot 'extension').Replace('\', '\\'))`");",
+    # Tracking protection off, so the ad the uBlock Origin check loads
+    # is blocked by uBlock Origin or not at all.
+    'user_pref("seijaku.trackingprotection", "off");',
     'user_pref("browser.dom.window.dump.enabled", true);',
     'user_pref("devtools.console.stdout.chrome", true);'
 ) | Set-Content (Join-Path $profile 'user.js') -Encoding ascii
@@ -57,14 +62,18 @@ try {
     Start-Sleep 2
     Write-Host '--- browser output (errors and warnings) ---'
     foreach ($f in $log, "$log.err") {
-        if (Test-Path $f) { Get-Content $f | Select-String -Pattern 'error|exception|Seijaku' | Select-Object -First 80 | ForEach-Object { $_.Line } }
+        if (Test-Path $f) {
+            Get-Content $f | Select-String -Pattern 'error|exception|Seijaku|seijaku|moz-extension' |
+                Where-Object { $_.Line -notmatch 'BrowserWindowTracker|jsonview|performance-new' } |
+                Select-Object -First 300 | ForEach-Object { $_.Line }
+        }
     }
 } finally {
     Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue
 }
 
 $resultsFile = Join-Path $profile 'smoke-results.json'
-if (-not (Test-Path $resultsFile)) { throw 'no smoke-results.json: the test never finished (see the output above)' }
+if (-not (Test-Path $resultsFile)) { throw 'no smoke-results.json: the test never started a check (see the output above)' }
 $results = Get-Content -Raw $resultsFile | ConvertFrom-Json
 $failed = 0
 Write-Host '--- smoke results ---'
