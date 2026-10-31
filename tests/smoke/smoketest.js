@@ -277,6 +277,17 @@
         const { ExtensionParent } = ChromeUtils.importESModule("resource://gre/modules/ExtensionParent.sys.mjs");
         let extension = ExtensionParent.GlobalManager.getExtension("smoke-test@seijaku.browser");
         ExtensionParent.apiManager.global.browserActionFor(extension).setProperty(null, "badgeText", "on");
+        // How the background page's own calls resolve.
+        let { ParentAPIManager, apiManager } = ExtensionParent;
+        let ctx = [...ParentAPIManager.proxyContexts.values()].find(c => c.extension === extension && c.isBackgroundContext);
+        let can = ctx?.apiCan;
+        let fn = can && (await can.asyncFindAPIPath("browserAction.setBadgeText"));
+        const { Schemas } = ChromeUtils.importESModule("resource://gre/modules/Schemas.sys.mjs");
+        dump(`Seijaku smoke diag: ctx=${!!ctx} fn=${typeof fn} apis=${can && [...can.apis.keys()]} ` +
+          `root.browserAction=${can && Object.keys(can.root.browserAction ?? {})} ` +
+          `checkGet=${apiManager._checkGetAPI("browserAction", extension, "addon_parent")} ` +
+          `schemaPerm=${Schemas.checkPermissions("browserAction", extension)} ` +
+          `module=${JSON.stringify(apiManager.getModule("browserAction"))}\n`);
       } catch (e) {
         throw new Error(`direct badge call: ${e} | ${String(e?.stack).replace(/\n/g, " | ")}`);
       }
