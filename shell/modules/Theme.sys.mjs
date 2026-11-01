@@ -50,6 +50,18 @@ export const THEMES = {
     line: "#262a3d",
     error: "#e07b7b",
   },
+  // Private windows, whatever the theme setting: deep plum with a
+  // violet accent, so a private window can't be mistaken for an
+  // ordinary one (its pages, home and settings included).
+  private: {
+    barBg: "#1d1428",
+    fg: "#ece4f6",
+    tabSelectedFg: "#ffffff",
+    accent: "#b98cf5",
+    muted: "#9d8fb3",
+    line: "#33264a",
+    error: "#e07b7b",
+  },
 };
 
 export function applyColors(element, theme = "ink", custom = null) {

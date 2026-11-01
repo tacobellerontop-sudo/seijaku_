@@ -433,6 +433,17 @@
       return pwin.document.title;
     });
 
+    await check("a private window wears its own colours and a Private mark", () => {
+      const { THEMES } = ChromeUtils.importESModule("resource://seijaku/Theme.sys.mjs");
+      let bg = w => w.document.documentElement.style.getPropertyValue("--bar-bg");
+      assert(bg(pwin) == THEMES.private.barBg, `private bar is ${bg(pwin)}`);
+      assert(bg(window) != bg(pwin), "the private window looks like this one");
+      let badge = pwin.document.getElementById("private-badge");
+      let rect = badge.getBoundingClientRect();
+      assert(rect.width > 0 && rect.height > 0, `the Private mark isn't shown (display ${pwin.getComputedStyle(badge).display}, hidden ${badge.hidden})`);
+      return `${bg(pwin)}, mark ${Math.round(rect.width)}px`;
+    });
+
     await check("private cookies stay out of ordinary browsing and go when the window closes", async () => {
       await waitFor("the page's private cookie", () => has({ privateBrowsingId: 1 }));
       assert(!has({}), "the cookie leaked into ordinary browsing");
