@@ -243,6 +243,7 @@ window.addEventListener("DOMContentLoaded", () => {
   } catch (e) {
     stripBox.textContent = "Right-click the strip to choose its buttons.";
   }
+  initLimiter();
   bindBool("setting-update", "seijaku.update.enabled");
   bindBool("setting-autohide", "seijaku.chrome.autohide");
   bindBool("setting-tab-icons", "seijaku.tabs.icons");
@@ -290,6 +291,67 @@ window.addEventListener("DOMContentLoaded", () => {
     Services.prefs.setBoolPref("seijaku.update.installNow", true);
   });
 });
+
+/* Performance: the RAM/CPU limiter's switches and caps (applied live by
+   resource://seijaku/Limiter.sys.mjs, which watches the prefs), and
+   what Seijaku uses right now, measured every two seconds while this
+   page is on screen. */
+function initLimiter() {
+  let L;
+  try {
+    L = ChromeUtils.importESModule("resource://seijaku/Limiter.sys.mjs");
+  } catch (e) {
+    document.getElementById("limiter-usage").textContent = "The limiter isn't available in this build.";
+    return;
+  }
+  bindBool("setting-limit-ram", "seijaku.limiter.ram.enabled");
+  bindBool("setting-limit-cpu", "seijaku.limiter.cpu.enabled");
+  let gb = mb => `${(mb / 1024).toFixed(mb % 1024 ? 1 : 0)} GB`;
+  let fill = (id, pref, choices, label, fallback) => {
+    let select = document.getElementById(id);
+    let current = Services.prefs.getIntPref(pref, fallback);
+    // A value set by hand (about:config) still shows, as its own entry.
+    if (!choices.includes(current)) {
+      choices = [...choices, current].sort((a, b) => a - b);
+    }
+    for (let value of choices) {
+      let option = document.createElement("option");
+      option.value = value;
+      option.textContent = label(value);
+      select.append(option);
+    }
+    select.value = current;
+    select.addEventListener("change", () => {
+      Services.prefs.setIntPref(pref, Number(select.value));
+      flashSaved();
+    });
+  };
+  // Caps above the machine's own memory would never trigger.
+  let total = L.systemMemory();
+  let ramChoices = L.RAM_CHOICES_MB.filter(mb => !total || mb * 1024 * 1024 < total);
+  fill("setting-limit-ram-mb", "seijaku.limiter.ram.mb", ramChoices.length ? ramChoices : L.RAM_CHOICES_MB, gb, 2048);
+  fill("setting-limit-cpu-percent", "seijaku.limiter.cpu.percent", L.CPU_CHOICES, p => `${p}%`, 50);
+
+  let usage = document.getElementById("limiter-usage");
+  let prev = null;
+  let show = async () => {
+    if (document.hidden) {
+      return;
+    }
+    try {
+      let cur = await L.measure();
+      let mem = cur.memory / (1024 * 1024);
+      let memText = mem >= 1024 ? `${(mem / 1024).toFixed(1)} GB` : `${Math.round(mem)} MB`;
+      let cpuText = prev ? `${Math.round(L.cpuPercent(prev, cur))}%` : "…";
+      prev = cur;
+      usage.textContent = `Seijaku is using ${memText} of memory and ${cpuText} of the processor right now.`;
+    } catch (e) {
+      usage.textContent = "Couldn't measure what Seijaku is using.";
+    }
+  };
+  show();
+  setInterval(show, 2000);
+}
 
 /* The section row at the top: each link scrolls to its section (no
    history entry per click), and the link for the section in view is

@@ -17,6 +17,7 @@
     <nav id="sections" aria-label="Settings sections">
       <a href="#general">General</a>
       <a href="#strip">Strip</a>
+      <a href="#performance">Performance</a>
       <a href="#privacy">Privacy</a>
       <a href="#downloads">Downloads</a>
       <a href="#video">Video</a>
@@ -121,6 +122,27 @@
     <h2 id="strip">strip buttons</h2>
     <p class="muted">Which buttons show on the strip. Right-click the strip for the same list. Their keyboard shortcuts work either way.</p>
     <div id="strip-buttons"></div>
+    <h2 id="performance">performance</h2>
+    <p id="limiter-usage" class="muted">Measuring…</p>
+    <label>
+      <input id="setting-limit-ram" type="checkbox" />
+      Limit RAM
+      <span class="muted">When Seijaku as a whole goes over the limit, background tabs go to sleep one at a time, least recently used first, until it's back under. A sleeping tab keeps its place and reloads when you click it.</span>
+    </label>
+    <label>
+      RAM limit
+      <select id="setting-limit-ram-mb"></select>
+    </label>
+    <label>
+      <input id="setting-limit-cpu" type="checkbox" />
+      Limit CPU
+      <span class="muted">Background tabs get a much smaller share of time for their scripts, and if Seijaku stays over the limit for 30 seconds, the busiest background tab goes to sleep.</span>
+    </label>
+    <label>
+      CPU limit (share of the whole processor)
+      <select id="setting-limit-cpu-percent"></select>
+    </label>
+    <p class="muted">The engine can't hard-cap memory or processor use, so these limits work by sleeping and slowing background tabs. The tab you're looking at, pinned tabs, tabs playing sound, and tabs you left in the last 30 seconds are never touched; if those alone are over the limit, Seijaku leaves them be. Background tabs always run in Windows' efficiency mode.</p>
     <h2 id="privacy">privacy</h2>
     <p class="muted">Tracking protection is the engine's own blocker. For stronger ad blocking, install uBlock Origin from the extensions page — it blocks more, and it is optional here on purpose.</p>
     <label>
@@ -202,7 +224,7 @@
       <li>Ctrl+1 … Ctrl+8 — that tab; Ctrl+9 — the last tab</li>
       <li>Drag a tab — move it along the strip</li>
       <li>Ctrl+Shift+T — reopen closed tab</li>
-      <li>Ctrl+Shift+N — private window</li>
+      <li>Ctrl+Shift+N — private window (no history, cookies forgotten when it closes)</li>
       <li>Ctrl+Shift+S — sleep this tab now</li>
       <li>Ctrl+Shift+P — pin or unpin this tab</li>
       <li>Ctrl+Shift+H — hide or show the strip</li>

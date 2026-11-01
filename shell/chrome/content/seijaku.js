@@ -13,6 +13,7 @@ const { E10SUtils } = ChromeUtils.importESModule(
 );
 const Theme = ChromeUtils.importESModule("resource://seijaku/Theme.sys.mjs");
 const Widevine = ChromeUtils.importESModule("resource://seijaku/Widevine.sys.mjs");
+const { Limiter } = ChromeUtils.importESModule("resource://seijaku/Limiter.sys.mjs");
 
 // The engine's own page actors (Select, Finder, UAWidgets, AudioPlayback,
 // AutoScroll and the rest) are registered by whoever imports this
@@ -127,7 +128,7 @@ const SESSION_FILE = "seijaku-session.json";
 const DATA_FILE = "seijaku-data.json";
 const HISTORY_LIMIT = 1000;
 const MESSAGE_MS = 4000;
-const SEIJAKU_VERSION = "1.0.7";
+const SEIJAKU_VERSION = "1.0.8";
 const UPDATE_REPO = "tacobellerontop-sudo/seijaku_";
 const UPDATE_CHECK_MS = 24 * 60 * 60 * 1000;
 // Session and data writes are batched: a page load reports its
@@ -143,6 +144,7 @@ const STRIP_BUTTONS = [
   { key: "reload", id: "nav-reload", label: "Reload" },
   { key: "home", id: "nav-home", label: "Home", off: true },
   { key: "new", id: "tab-new", label: "New tab" },
+  { key: "private", id: "private-new", label: "New private window" },
   { key: "undo", id: "tab-undo", label: "Reopen closed tab" },
   { key: "bookmark", id: "bookmark-star", label: "Bookmark this page" },
   { key: "reader", id: "reader-button", label: "Reader view", off: true },
@@ -391,6 +393,7 @@ var Seijaku = {
       }
     });
     document.getElementById("tab-new").addEventListener("click", () => this.newTabWithBar());
+    document.getElementById("private-new").addEventListener("click", () => this.openPrivateWindow());
     document.getElementById("tab-undo").addEventListener("click", () => this.undoCloseTab());
     document.getElementById("bookmark-star").addEventListener("click", () => this.toggleBookmark());
     document.getElementById("strip-menu").addEventListener("click", () => this.openPage("settings"));
@@ -474,6 +477,13 @@ var Seijaku = {
     }
     if (!this.isPopup) {
       this._sleepTimer = setInterval(() => this.sleepIdleTabs(), 60 * 1000);
+      // The RAM/CPU limiter (Settings > Performance) is one for the
+      // whole browser; the first window starts it.
+      try {
+        Limiter.start();
+      } catch (e) {
+        console.error("Seijaku: starting the limiter", e);
+      }
     }
     if (!this.isPrivate && !this.isPopup) {
       this.cleanUpOldUpdates();
@@ -482,13 +492,17 @@ var Seijaku = {
     this._initDone = true;
   },
 
-  /** Reads the private flag from the engine and the window argument. */
+  /** Reads the private flag from the engine and the window argument.
+      The argument also carries the address a private window opens
+      with ("Open link in private window"), whichever flag says so. */
   initPrivateFlag() {
+    let parsed = null;
     try {
       let arg = (window.arguments || [])[0];
       let text = typeof arg == "string" ? arg : arg?.data;
-      this.isPopup = !!(text && JSON.parse(text)?.popup);
+      parsed = text ? JSON.parse(text) : null;
     } catch (e) { /* an ordinary window */ }
+    this.isPopup = !!parsed?.popup;
     try {
       let { PrivateBrowsingUtils } = ChromeUtils.importESModule(
         "resource://gre/modules/PrivateBrowsingUtils.sys.mjs"
@@ -497,20 +511,10 @@ var Seijaku = {
         this.isPrivate = true;
       }
     } catch (e) { /* fall through to the argument */ }
-    if (this.isPrivate) {
-      return;
+    if (parsed?.private) {
+      this.isPrivate = true;
+      this._privateURL = parsed.url || null;
     }
-    try {
-      let arg = (window.arguments || [])[0];
-      let text = typeof arg == "string" ? arg : arg?.data;
-      if (text) {
-        let parsed = JSON.parse(text);
-        if (parsed?.private) {
-          this.isPrivate = true;
-          this._privateURL = parsed.url || null;
-        }
-      }
-    } catch (e) { /* not a private window */ }
   },
 
   // -------------------------------------------------------------- updates
@@ -4486,22 +4490,35 @@ var Seijaku = {
     this.load(b, tab.url, { triggeringPrincipal });
   },
 
-  sleepIdleTabs() {
-    let minutes = this.pref("tabs.unloadAfterMinutes", 15);
-    if (minutes <= 0) {
-      return;
-    }
-    let now = Date.now();
-    // A popup and its opener stay awake while both are open: sleeping
-    // either one would cut the link a sign-in hands its result back on.
+  /** A popup and its opener: they stay awake while both are open,
+      since sleeping either one would cut the link a sign-in hands its
+      result back on. */
+  linkedTabs() {
     let linked = new Set();
     for (let tab of this.tabs) {
       if (tab.openerTab && this.tabs.includes(tab.openerTab)) {
         linked.add(tab).add(tab.openerTab);
       }
     }
+    return linked;
+  },
+
+  /** Whether the idle timer or the RAM/CPU limiter may sleep a tab:
+      not the one on screen, not pinned, not playing sound (background
+      music would stop), not half of a sign-in popup pair. */
+  mayAutoSleep(tab, linked = this.linkedTabs()) {
+    return !tab.asleep && !tab.pinned && tab !== this.selected && !tab._soundPlaying && !linked.has(tab);
+  },
+
+  sleepIdleTabs() {
+    let minutes = this.pref("tabs.unloadAfterMinutes", 15);
+    if (minutes <= 0) {
+      return;
+    }
+    let now = Date.now();
+    let linked = this.linkedTabs();
     for (let tab of this.tabs) {
-      if (!tab.asleep && !linked.has(tab) && now - tab.lastActive > minutes * 60 * 1000) {
+      if (this.mayAutoSleep(tab, linked) && now - tab.lastActive > minutes * 60 * 1000) {
         this.sleep(tab);
       }
     }

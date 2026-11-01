@@ -387,7 +387,142 @@
 
     await bookmarkChecks(tab);
 
+    await privateChecks();
+
+    await limiterChecks();
+
     await extensionChecks();
+  }
+
+  /* Private windows: the strip button shows, a link opens in a window
+     the engine itself treats as private, its cookie stays out of
+     ordinary browsing and is forgotten when the window closes, and the
+     visit never reaches history. */
+  async function privateChecks() {
+    const { PrivateBrowsingUtils } = ChromeUtils.importESModule("resource://gre/modules/PrivateBrowsingUtils.sys.mjs");
+    const url = BASE + "cookie.html";
+    const host = new URL(BASE).hostname;
+    const has = attrs => Services.cookies.getCookiesFromHost(host, attrs).some(c => c.name == "seijaku_private");
+    let pwin;
+
+    await check("the private window button is on the strip", () => {
+      let button = document.getElementById("private-new");
+      assert(button && !button.hasAttribute("strip-off"), "the button is hidden");
+      return button.title;
+    });
+
+    await check("a link opens in a private window the engine treats as private", async () => {
+      let before = new Set(Services.wm.getEnumerator("seijaku:main"));
+      Seijaku.openPrivateWindow(url);
+      pwin = await waitFor(
+        "the private window",
+        () => [...Services.wm.getEnumerator("seijaku:main")].find(w => !before.has(w) && w.Seijaku?._initDone),
+        30000
+      );
+      assert(pwin.Seijaku.isPrivate, "the window doesn't know it is private");
+      assert(PrivateBrowsingUtils.isWindowPrivate(pwin), "the engine doesn't treat the window as private");
+      let ptab = await waitFor(
+        "the link to load in it",
+        () => {
+          let t = pwin.Seijaku.selected;
+          return t?.browser?.currentURI?.spec == url && !t.el.hasAttribute("busy") && t;
+        },
+        30000
+      );
+      assert(ptab.browser.browsingContext.usePrivateBrowsing, "the page is not in private browsing");
+      return pwin.document.title;
+    });
+
+    await check("private cookies stay out of ordinary browsing and go when the window closes", async () => {
+      await waitFor("the page's private cookie", () => has({ privateBrowsingId: 1 }));
+      assert(!has({}), "the cookie leaked into ordinary browsing");
+      assert(!Seijaku._data?.history?.some(h => h.url == url), "the private visit is in history");
+      pwin.close();
+      await waitFor("the private window to close", () => pwin.closed);
+      await waitFor("private cookies to be forgotten", () => !has({ privateBrowsingId: 1 }), 30000);
+    });
+  }
+
+  /* The RAM/CPU limiter (Settings > Performance): with a tiny RAM cap
+     a background tab sleeps and the one on screen doesn't; with a
+     tiny CPU cap, a background page burning a processor gets its tab
+     slept; the background timer budget follows the CPU switch; and
+     Settings shows live usage. Both limits are off again afterwards. */
+  async function limiterChecks() {
+    const { Limiter } = ChromeUtils.importESModule("resource://seijaku/Limiter.sys.mjs");
+    const P = "seijaku.limiter.";
+    const BUDGET = "dom.timeout.background_throttling_max_budget";
+    let idle = Limiter.minIdleMs;
+    Limiter.minIdleMs = 0;
+    const pidOf = t => t.browser?.browsingContext?.currentWindowGlobal?.osPid ?? 0;
+
+    await check("off by default", () => {
+      assert(!Services.prefs.getBoolPref(P + "ram.enabled") && !Services.prefs.getBoolPref(P + "cpu.enabled"), "a limit is on");
+      assert(!Services.prefs.prefHasUserValue(BUDGET), "background timers are tightened while the limiter is off");
+    });
+
+    await check("over the RAM limit, a background tab sleeps and the one on screen doesn't", async () => {
+      await openAndLoad("article.html");
+      let fg = await openAndLoad("links.html");
+      let awake = Seijaku.tabs.filter(t => t != fg && !t.asleep);
+      assert(awake.length, "no background tab to sleep");
+      Services.prefs.setIntPref(P + "ram.mb", 1);
+      Services.prefs.setBoolPref(P + "ram.enabled", true);
+      let slept = await waitFor("a tab to sleep", async () => {
+        await Limiter.tick();
+        return awake.find(t => t.asleep);
+      });
+      assert(!fg.asleep && Seijaku.selected == fg, "the tab on screen was slept");
+      Services.prefs.setBoolPref(P + "ram.enabled", false);
+      Services.prefs.clearUserPref(P + "ram.mb");
+      return slept.url;
+    });
+
+    let hog;
+    await check("over the CPU limit, the busy background page's tab sleeps", async () => {
+      let fg = Seijaku.selected;
+      hog = Seijaku.openTab(BASE + "cpu.html", { background: true });
+      await waitFor("the busy page to load", () => hog.browser?.currentURI?.spec == BASE + "cpu.html" && hog.title == "busy");
+      assert(Seijaku.selected == fg, "the busy page took the screen");
+      let hogPid = pidOf(hog);
+      let samePid = Seijaku.tabs.filter(t => !t.asleep && t != fg && pidOf(t) == hogPid);
+      Services.prefs.setIntPref(P + "cpu.percent", 1);
+      Services.prefs.setBoolPref(P + "cpu.enabled", true);
+      assert(Services.prefs.getIntPref(BUDGET) == 10, "background timers didn't tighten");
+      let slept = await waitFor("a tab in the busy process to sleep", async () => {
+        await Limiter.tick();
+        await sleep(1000);
+        return samePid.find(t => t.asleep);
+      }, 40000);
+      assert(!fg.asleep, "the tab on screen was slept");
+      return `${slept.url} (process ${hogPid})`;
+    });
+
+    await check("turning the CPU limit off restores the engine's timers", () => {
+      Services.prefs.setBoolPref(P + "cpu.enabled", false);
+      Services.prefs.clearUserPref(P + "cpu.percent");
+      assert(!Services.prefs.prefHasUserValue(BUDGET), "the tighter budget stayed");
+      if (Seijaku.tabs.includes(hog)) {
+        Seijaku.closeTab(hog);
+      }
+    });
+
+    await check("Settings shows what Seijaku uses now", async () => {
+      let page = Seijaku.openPage("settings");
+      let doc = await waitFor("the settings page", () => {
+        let d = page.browser?.contentDocument;
+        return d?.readyState == "complete" && d.getElementById("limiter-usage") ? d : null;
+      });
+      let line = await waitFor("a reading with the processor share", () => {
+        let text = doc.getElementById("limiter-usage").textContent;
+        return /using [\d.]+ (MB|GB) of memory and \d+% of the processor/.test(text) && text;
+      });
+      assert(doc.getElementById("setting-limit-ram-mb").options.length > 0, "no RAM limit choices");
+      Seijaku.closeTab(page);
+      return line;
+    });
+
+    Limiter.minIdleMs = idle;
   }
 
   /* Bookmarks: the star, the bookmarks page, the home page's row and
