@@ -7,6 +7,12 @@
   const Theme = ChromeUtils.importESModule("resource://seijaku/Theme.sys.mjs");
   let apply = () => {
     let theme = Services.prefs.getStringPref("seijaku.theme", "ink");
+    // Pages in a private window wear its private colours.
+    try {
+      if (window.browsingContext?.usePrivateBrowsing) {
+        theme = "private";
+      }
+    } catch (e) { /* an ordinary window's colours */ }
     // "system" resolves through the OS setting, the way the chrome
     // window does: dark is the ink look, light is the paper look.
     if (theme == "system") {

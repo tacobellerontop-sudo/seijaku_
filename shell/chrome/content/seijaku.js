@@ -128,7 +128,7 @@ const SESSION_FILE = "seijaku-session.json";
 const DATA_FILE = "seijaku-data.json";
 const HISTORY_LIMIT = 1000;
 const MESSAGE_MS = 4000;
-const SEIJAKU_VERSION = "1.0.8";
+const SEIJAKU_VERSION = "1.0.9";
 const UPDATE_REPO = "tacobellerontop-sudo/seijaku_";
 const UPDATE_CHECK_MS = 24 * 60 * 60 * 1000;
 // Session and data writes are batched: a page load reports its
@@ -869,6 +869,10 @@ var Seijaku = {
       accent: this.pref("theme.custom.accent", "#d8442a"),
     };
     let theme = this.pref("theme", "ink");
+    // A private window always wears the private colours.
+    if (this.isPrivate) {
+      theme = "private";
+    }
     if (theme == "system") {
       try {
         theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "ink" : "paper";
