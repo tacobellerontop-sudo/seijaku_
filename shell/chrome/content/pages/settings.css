@@ -82,3 +82,49 @@ label input[type="checkbox"] {
   height: 28px;
   padding: 2px;
 }
+
+/* Section row: stays at the top while the page scrolls. */
+#sections {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 20px 0 0;
+  padding: 10px 0;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+}
+
+#sections a {
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 12px;
+  padding: 2px 0;
+  border-bottom: 2px solid transparent;
+}
+
+#sections a:hover,
+#sections a[current] {
+  color: var(--fg);
+}
+
+#sections a[current] {
+  border-bottom-color: var(--accent);
+}
+
+/* Headings jumped to land below the sticky row, not under it. */
+h2 {
+  scroll-margin-top: 56px;
+}
+
+#general {
+  margin-top: 28px;
+}
+
+#version-current {
+  color: var(--fg);
+  font-weight: normal;
+  font-family: ui-monospace, Consolas, monospace;
+}

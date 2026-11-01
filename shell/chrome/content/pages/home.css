@@ -298,3 +298,47 @@ main {
 #sleeping[hidden] {
   display: none;
 }
+
+/* A bookmark shortcut and its remove mark, shown on hover. */
+.freq-wrap {
+  position: relative;
+  display: inline-flex;
+}
+.freq-remove {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 11px;
+  line-height: 14px;
+  color: var(--muted);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.freq-wrap:hover .freq-remove,
+.freq-remove:focus-visible {
+  opacity: 1;
+}
+.freq-remove:hover {
+  color: var(--accent);
+}
+#frequent-add {
+  padding: 4px;
+}
+
+/* The + button's form. */
+#frequent-form {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 14px;
+}
+#frequent-form[hidden] {
+  display: none;
+}
+#frequent-form input {
+  width: 180px;
+}

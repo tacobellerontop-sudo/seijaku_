@@ -274,9 +274,53 @@ window.addEventListener("DOMContentLoaded", () => {
     }
     flashSaved();
   });
+  // The exact version this copy is running, read from the shell (it
+  // is SEIJAKU_VERSION, the same number the updater compares), plus
+  // the engine underneath it.
+  let version = shellWindow()?.Seijaku?.version;
+  document.getElementById("version-current").textContent = version || "unknown";
+  try {
+    document.getElementById("version-engine").textContent =
+      `Running on the Firefox ${Services.appinfo.platformVersion} engine.`;
+  } catch (e) { /* the engine line is extra */ }
+  initSectionNav();
   // The settings page cannot call the chrome window directly, so it
   // asks for an update by flipping a pref the chrome window watches.
   document.getElementById("setting-update-now").addEventListener("click", () => {
     Services.prefs.setBoolPref("seijaku.update.installNow", true);
   });
 });
+
+/* The section row at the top: each link scrolls to its section (no
+   history entry per click), and the link for the section in view is
+   marked as you scroll. */
+function initSectionNav() {
+  let links = [...document.querySelectorAll("#sections a")];
+  let sections = links.map(a => document.getElementById(a.hash.slice(1))).filter(Boolean);
+  for (let link of links) {
+    link.addEventListener("click", event => {
+      event.preventDefault();
+      document.getElementById(link.hash.slice(1))?.scrollIntoView({ block: "start", behavior: "smooth" });
+    });
+  }
+  let mark = () => {
+    let nav = document.getElementById("sections");
+    let top = nav.getBoundingClientRect().bottom + 24;
+    let current = sections[0];
+    for (let section of sections) {
+      if (section.getBoundingClientRect().top <= top) {
+        current = section;
+      }
+    }
+    // At the very bottom, the last section counts as current even if
+    // its heading never reaches the top.
+    if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2) {
+      current = sections[sections.length - 1];
+    }
+    for (let link of links) {
+      link.toggleAttribute("current", link.hash.slice(1) == current?.id);
+    }
+  };
+  window.addEventListener("scroll", mark, { passive: true });
+  mark();
+}

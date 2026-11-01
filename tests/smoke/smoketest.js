@@ -48,7 +48,9 @@
         fn(),
         new Promise((_, reject) => (timer = setTimeout(() => reject(new Error(`no result in ${limitMs / 1000} s`)), limitMs))),
       ]);
-      results.push({ name, ok: true, detail: detail ?? "" });
+      // Details are strings: an object here (say, a tab) would make
+      // the results file unwritable and hide every later check.
+      results.push({ name, ok: true, detail: String(detail ?? "") });
     } catch (e) {
       results.push({ name, ok: false, detail: String(e?.message || e) });
       dump(`Seijaku smoke: FAILED ${name}: ${e?.message || e}\n`);
@@ -383,7 +385,104 @@
       assert(!(await IOUtils.exists(dataPath + ".tmp")), "temporary file left behind");
     });
 
+    await bookmarkChecks(tab);
+
     await extensionChecks();
+  }
+
+  /* Bookmarks: the star, the bookmarks page, the home page's row and
+     its + form; Ctrl+T leaves the bar closed (the home page's box has
+     the focus) and Ctrl+L opens it; Settings shows the version and
+     jumps between sections. */
+  async function bookmarkChecks(tab) {
+    async function pageDoc(t, id) {
+      return waitFor(`${t.url} to load`, () => {
+        let doc = t.browser?.contentDocument;
+        return doc?.readyState == "complete" && doc.getElementById(id) ? doc : null;
+      });
+    }
+
+    await check("the star bookmarks a page, and the bookmarks page lists it live", async () => {
+      Seijaku.selectTab(tab);
+      let star = document.getElementById("bookmark-star");
+      if (Seijaku.isBookmarked(tab.url)) {
+        star.click();
+      }
+      assert(!star.hasAttribute("bookmarked"), "the star still shows bookmarked");
+      let page = Seijaku.openPage("bookmarks");
+      let doc = await pageDoc(page, "list");
+      let listed = () => [...doc.querySelectorAll(".row-url")].some(el => el.textContent == tab.url);
+      assert(!listed(), "an unbookmarked page is listed");
+      Seijaku.selectTab(tab);
+      star.click();
+      assert(Seijaku.isBookmarked(tab.url), "the star did not bookmark the page");
+      assert(star.hasAttribute("bookmarked"), "the star does not show bookmarked");
+      await waitFor("the open bookmarks page to list it", listed);
+      Seijaku.closeTab(page);
+    });
+
+    await check("Ctrl+T opens home without the bar; Ctrl+L opens the bar", async () => {
+      let panel = document.getElementById("urlbar-panel");
+      Seijaku.newTabWithBar();
+      let home = Seijaku.selected;
+      let doc = await pageDoc(home, "frequent-list");
+      await sleep(300);
+      assert(panel.state == "closed", `the bar is ${panel.state} on a new tab`);
+      await waitFor("the home search box to have the focus", () => doc.activeElement?.id == "search");
+      Seijaku.showFloatingBar();
+      await waitFor("the bar to open on Ctrl+L", () => panel.state == "open");
+      Seijaku.hideFloatingBar();
+      await waitFor("the bar to close", () => panel.state == "closed");
+    });
+
+    await check("the home page's bookmarks row shows bookmarks and + adds one", async () => {
+      let home = Seijaku.selected;
+      let doc = await pageDoc(home, "frequent-list");
+      let names = () => [...doc.querySelectorAll("#frequent-list .freq-item[title]")].map(el => el.title);
+      await waitFor("the bookmarked page in the row", () => names().includes(tab.url));
+      doc.getElementById("frequent-add").click();
+      let form = doc.getElementById("frequent-form");
+      assert(!form.hidden, "+ did not open the form");
+      doc.getElementById("frequent-url").value = "example.org";
+      doc.getElementById("frequent-title").value = "Example";
+      form.requestSubmit();
+      let mark = Seijaku.getFrequentBookmarks().find(b => /^https?:\/\/example\.org\//.test(b.url));
+      assert(mark, `+ did not add a Frequent bookmark (${Seijaku.getFrequentBookmarks().map(b => b.url).join(", ") || "none"})`);
+      assert(mark.title == "Example", `wrong name ${mark.title}`);
+      assert(form.hidden, "the form stayed open");
+      await waitFor("the new bookmark first in the row", () => names()[0] == mark.url);
+      let threw = false;
+      try {
+        Seijaku.addBookmark("two words", "", "Frequent");
+      } catch (e) {
+        threw = true;
+      }
+      assert(threw, "a search was bookmarked");
+      Seijaku.removeBookmark(mark.url);
+      await waitFor("the row to drop it", () => !names().includes(mark.url));
+      Seijaku.closeTab(home);
+    });
+
+    await check("Settings shows the exact version and jumps between sections", async () => {
+      let page = Seijaku.openPage("settings");
+      let doc = await pageDoc(page, "sections");
+      let shown = doc.getElementById("version-current").textContent;
+      assert(shown == Seijaku.version, `Settings shows ${shown}, not ${Seijaku.version}`);
+      let links = [...doc.querySelectorAll("#sections a")];
+      assert(links.length >= 6, "the section row is missing");
+      for (let link of links) {
+        assert(doc.getElementById(link.hash.slice(1)), `no section for ${link.hash}`);
+      }
+      let win = doc.defaultView;
+      links.find(a => a.hash == "#updates").click();
+      await waitFor("the page to scroll to Updates", () => {
+        let top = doc.getElementById("updates").getBoundingClientRect().top;
+        return win.scrollY > 0 && top < 120;
+      });
+      await waitFor("Updates to be marked", () => links.find(a => a.hash == "#updates").hasAttribute("current"));
+      Seijaku.closeTab(page);
+      return shown;
+    });
   }
 
   /* PDFs: they open in the engine's PDF viewer (pdf.js) — typed, from

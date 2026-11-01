@@ -45,7 +45,7 @@ Seijaku leaves out is everything around it that you didn't ask for.
 <td width="50%"><img src="docs/images/home-paper.png" alt="The home page in the paper theme"><br><sub><b>Ink or paper.</b> A dark and a light theme, from Settings or the palette.</sub></td>
 </tr>
 <tr>
-<td><img src="docs/images/floating-bar.png" alt="The floating address bar suggesting tabs, bookmarks and history"><br><sub><b>A floating address bar.</b> Ctrl+L or Ctrl+T brings it up. It finds open tabs first, then bookmarks, then history.</sub></td>
+<td><img src="docs/images/floating-bar.png" alt="The floating address bar suggesting tabs, bookmarks and history"><br><sub><b>A floating address bar.</b> Ctrl+L brings it up. It finds open tabs first, then bookmarks, then history.</sub></td>
 <td><img src="docs/images/palette.png" alt="The command palette"><br><sub><b>A command palette.</b> Ctrl+K to search every command, tab and bookmark.</sub></td>
 </tr>
 <tr>
@@ -91,7 +91,7 @@ Requires 64-bit Windows 10 or 11.
 
 | Keys | What it does |
 | --- | --- |
-| `Ctrl+T` | New tab, with the address bar open |
+| `Ctrl+T` | New tab (type in its search box) |
 | `Ctrl+L` | Address bar for this tab |
 | `Ctrl+K` | Command palette |
 | `Ctrl+W` | Close tab (or double-click it) |

@@ -61,8 +61,14 @@
              placeholder="Search the web&#8230;" autofocus="autofocus" />
     </form>
     <div id="frequent">
-      <div id="frequent-label">FREQUENT</div>
+      <div id="frequent-label">BOOKMARKS</div>
       <div id="frequent-list"></div>
+      <form id="frequent-form" autocomplete="off" hidden="hidden">
+        <input id="frequent-url" type="text" spellcheck="false" placeholder="Address, like example.com" />
+        <input id="frequent-title" type="text" spellcheck="false" placeholder="Name (optional)" />
+        <button type="submit">Add</button>
+        <button id="frequent-cancel" type="button">Cancel</button>
+      </form>
     </div>
     <p id="sleeping" class="muted" hidden="hidden"></p>
   </main>

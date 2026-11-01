@@ -1,9 +1,9 @@
 /* Seijaku home page, per the sketch: a greeting by the time of day,
-   the search box, a FREQUENT row, counts down the left, and weather
+   the search box, a BOOKMARKS row, counts down the left, and weather
    at the top right — all in the existing dot-art language.
-   FREQUENT is user-chosen, not most-visited: it shows bookmarks in
-   the "Frequent" folder, so the page never queries history to build
-   itself (the stance this page has always kept). Counts come from
+   The row is user-chosen, not most-visited: it shows bookmarks (the
+   "Frequent" folder first, + adds there), so the page never queries
+   history to build itself (the stance this page has always kept). Counts come from
    the shell's in-memory data, again with no history query to build
    the row; they wait briefly for the data file to load. Weather
    comes from the shell too (Open-Meteo, no key); a failed fetch
@@ -83,6 +83,11 @@ function renderCounts() {
 }
 renderCounts.tries = 0;
 
+// The row under the search box: your bookmarks as shortcuts. Ones in
+// the "Frequent" folder come first (that is where + puts them), then
+// the newest of the rest, up to FREQUENT_MAX in all.
+const FREQUENT_MAX = 8;
+
 function renderFrequent() {
   let s = shell();
   if (!s) {
@@ -90,11 +95,16 @@ function renderFrequent() {
   }
   let list = document.getElementById("frequent-list");
   list.replaceChildren();
-  let marks = s.getFrequentBookmarks();
+  let pinned = s.getFrequentBookmarks();
+  let rest = s.getBookmarks().filter(b => (b.folder || "") != "Frequent");
+  let marks = [...pinned, ...rest].slice(0, FREQUENT_MAX);
   for (let mark of marks) {
+    let wrap = document.createElement("span");
+    wrap.className = "freq-wrap";
     let item = document.createElement("button");
     item.type = "button";
     item.className = "freq-item";
+    item.title = mark.url;
     let tile = document.createElement("span");
     tile.className = "freq-tile";
     tile.textContent = (mark.title || mark.url).trim().slice(0, 1).toUpperCase();
@@ -107,21 +117,70 @@ function renderFrequent() {
     }
     item.append(tile, name);
     item.addEventListener("click", () => go(mark.url));
-    list.append(item);
+    let remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "freq-remove";
+    remove.title = "Remove this bookmark";
+    remove.textContent = "×";
+    remove.addEventListener("click", () => {
+      s.removeBookmark(mark.url);
+      s.showMessage("Bookmark removed");
+    });
+    wrap.append(item, remove);
+    list.append(wrap);
   }
   let add = document.createElement("button");
   add.type = "button";
   add.className = "freq-item";
-  add.title = "Add to Frequent from the bookmarks page";
+  add.id = "frequent-add";
+  add.title = "Add a bookmark here";
   let tile = document.createElement("span");
   tile.className = "freq-tile";
   tile.textContent = "+";
-  let name = document.createElement("span");
-  name.className = "freq-name";
-  name.textContent = "";
-  add.append(tile, name);
-  add.addEventListener("click", () => s.openPage("bookmarks"));
+  add.append(tile);
+  add.addEventListener("click", () => showAddForm(true));
   list.append(add);
+}
+
+/* The + button's small form: an address (and an optional name),
+   saved as a bookmark in the Frequent folder. */
+function showAddForm(open) {
+  let form = document.getElementById("frequent-form");
+  form.hidden = !open;
+  if (open) {
+    document.getElementById("frequent-url").value = "";
+    document.getElementById("frequent-title").value = "";
+    document.getElementById("frequent-url").focus();
+  } else {
+    document.getElementById("search").focus();
+  }
+}
+
+function submitAddForm() {
+  let s = shell();
+  if (!s) {
+    return;
+  }
+  let url = document.getElementById("frequent-url").value;
+  let title = document.getElementById("frequent-title").value.trim();
+  if (!url.trim()) {
+    return;
+  }
+  try {
+    s.addBookmark(url, title, "Frequent");
+  } catch (e) {
+    s.showMessage(e.message, "error");
+    return;
+  }
+  showAddForm(false);
+}
+
+function refreshBookmarks() {
+  let s = shell();
+  if (s?.dataReady()) {
+    document.getElementById("count-bookmarks").textContent = String(s.getBookmarks().length);
+  }
+  renderFrequent();
 }
 
 function renderWeather(data) {
@@ -190,6 +249,19 @@ window.addEventListener("DOMContentLoaded", () => {
   renderFrequent();
   loadWeather();
   showSleeping();
+  document.getElementById("frequent-form").addEventListener("submit", event => {
+    event.preventDefault();
+    submitAddForm();
+  });
+  document.getElementById("frequent-cancel").addEventListener("click", () => showAddForm(false));
+  document.getElementById("frequent-form").addEventListener("keydown", event => {
+    if (event.key == "Escape") {
+      showAddForm(false);
+    }
+  });
+  // The shell says when bookmarks change (Ctrl+D in another tab, the
+  // bookmarks page, the + form), so the row is never stale.
+  window.addEventListener("seijaku-bookmarks", refreshBookmarks);
   document.getElementById("count-bookmarks-row").addEventListener("click", () => shell()?.openPage("bookmarks"));
   document.getElementById("count-history-row").addEventListener("click", () => shell()?.openPage("history"));
   document.getElementById("count-settings-row").addEventListener("click", () => shell()?.openPage("settings"));
