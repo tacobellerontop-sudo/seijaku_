@@ -12,6 +12,10 @@ pref("seijaku.theme.custom.accent", "#d8442a");
 pref("seijaku.homepage", "seijaku:home");      // seijaku:home, about:blank or any address
 pref("seijaku.searchUrl", "https://duckduckgo.com/?q=%s");
 pref("seijaku.tabs.unloadAfterMinutes", 15);   // 0 turns tab sleeping off
+pref("seijaku.limiter.ram.enabled", false);    // RAM limiter (Settings > Performance): sleeps background tabs over the cap
+pref("seijaku.limiter.ram.mb", 2048);
+pref("seijaku.limiter.cpu.enabled", false);    // CPU limiter: tighter background timers, sleeps the busiest background tab
+pref("seijaku.limiter.cpu.percent", 50);       // share of the whole processor
 pref("seijaku.tabs.position", "top");           // top, bottom, left or right (Settings)
 pref("seijaku.startup", "restore");            // restore, home or blank (Settings)
 pref("seijaku.trackingprotection", "strict");  // strict, standard or off (Settings) — strict is the bundle below, kept as the default so the setting never weakens anyone on its own
@@ -20,7 +24,7 @@ pref("seijaku.weather.city", "Singapore");     // geocoded once, then stored as 
 pref("seijaku.weather.lat", "");               // filled on first weather fetch
 pref("seijaku.weather.lon", "");
 pref("seijaku.tabs.icons", true);         // site icons in tabs (Settings); private windows never show them
-pref("seijaku.strip.buttons", "back,forward,reload,new,undo,bookmark,downloads,security,extensions,permissions,menu"); // shown strip buttons (Settings, or right-click the strip); home, reader, bookmarks and history are off by default
+pref("seijaku.strip.buttons", "back,forward,reload,new,private,undo,bookmark,downloads,security,extensions,permissions,menu"); // shown strip buttons (Settings, or right-click the strip); home, reader, bookmarks and history are off by default
 pref("seijaku.chrome.autohide", false);   // hide the strip, keep only the reveal strip at the placement edge (Settings)
 pref("seijaku.download.folder", "");   // custom download folder (Settings); empty means the system Downloads folder
 pref("seijaku.download.ask", false);   // ask where to save each file (Settings)
@@ -33,6 +37,11 @@ pref("geo.enabled", false);
    off, and the shell's own animations are opacity/transform only, so
    they ride the compositor instead of reflowing anything. */
 pref("layers.acceleration.disabled", false);
+
+/* Background tabs' page processes run in Windows' efficiency mode
+   (EcoQoS), as in Firefox: Firefox sets this in its front end's prefs,
+   which the packager drops. The tab on screen keeps full speed. */
+pref("dom.ipc.processPriorityManager.backgroundUsesEcoQoS", true);
 
 /* DRM, kept on: encrypted video (Netflix and the like) needs the
    Widevine CDM, which Gecko downloads on first use — it is not bundled

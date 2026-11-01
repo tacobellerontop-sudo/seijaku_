@@ -1,0 +1,10 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Smoke CPU hog</title></head>
+<body>
+<p>Keeps one processor busy from a worker (workers aren't timer-throttled), for the CPU limiter check.</p>
+<script>
+  let code = "for (;;) { Math.sqrt(Math.random()); }";
+  new Worker(URL.createObjectURL(new Blob([code], { type: "text/javascript" })));
+  document.title = "busy";
+</script>
+</body></html>

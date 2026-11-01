@@ -59,7 +59,11 @@ Seijaku leaves out is everything around it that you didn't ask for.
 - **Tabs** that you can drag to reorder, pin, mute, put to sleep, and
   reopen after closing (Ctrl+Shift+T). Site icons beside each name.
 - **Bookmarks and history**, with import, folders and search.
-- **Private windows** (Ctrl+Shift+N) that keep no history.
+- **Private windows** (Ctrl+Shift+N, or the mask on the strip) that
+  keep no history and forget their cookies when you close them.
+- **A RAM and CPU limiter** (Settings > Performance, off until you turn
+  it on) that sleeps and slows background tabs to keep Seijaku under
+  the limits you pick.
 - **Reader view** that turns a cluttered article into clean text.
 - **A built-in PDF viewer** (Firefox's own) for PDF links, typed
   addresses and files, where you can draw, highlight and add text, then
