@@ -48,7 +48,9 @@
         fn(),
         new Promise((_, reject) => (timer = setTimeout(() => reject(new Error(`no result in ${limitMs / 1000} s`)), limitMs))),
       ]);
-      results.push({ name, ok: true, detail: detail ?? "" });
+      // Details are strings: an object here (say, a tab) would make
+      // the results file unwritable and hide every later check.
+      results.push({ name, ok: true, detail: String(detail ?? "") });
     } catch (e) {
       results.push({ name, ok: false, detail: String(e?.message || e) });
       dump(`Seijaku smoke: FAILED ${name}: ${e?.message || e}\n`);
@@ -431,7 +433,6 @@
       await waitFor("the bar to open on Ctrl+L", () => panel.state == "open");
       Seijaku.hideFloatingBar();
       await waitFor("the bar to close", () => panel.state == "closed");
-      return home;
     });
 
     await check("the home page's bookmarks row shows bookmarks and + adds one", async () => {
@@ -445,8 +446,8 @@
       doc.getElementById("frequent-url").value = "example.org";
       doc.getElementById("frequent-title").value = "Example";
       form.requestSubmit();
-      let mark = Seijaku.getFrequentBookmarks().find(b => b.url.startsWith("https://example.org"));
-      assert(mark, "+ did not add a Frequent bookmark");
+      let mark = Seijaku.getFrequentBookmarks().find(b => /^https?:\/\/example\.org\//.test(b.url));
+      assert(mark, `+ did not add a Frequent bookmark (${Seijaku.getFrequentBookmarks().map(b => b.url).join(", ") || "none"})`);
       assert(mark.title == "Example", `wrong name ${mark.title}`);
       assert(form.hidden, "the form stayed open");
       await waitFor("the new bookmark first in the row", () => names()[0] == mark.url);
