@@ -440,7 +440,7 @@
       assert(bg(window) != bg(pwin), "the private window looks like this one");
       let badge = pwin.document.getElementById("private-badge");
       let rect = badge.getBoundingClientRect();
-      assert(rect.width > 0 && rect.height > 0, "the Private mark isn't shown");
+      assert(rect.width > 0 && rect.height > 0, `the Private mark isn't shown (display ${pwin.getComputedStyle(badge).display}, hidden ${badge.hidden})`);
       return `${bg(pwin)}, mark ${Math.round(rect.width)}px`;
     });
 

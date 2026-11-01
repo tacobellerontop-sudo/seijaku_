@@ -350,6 +350,9 @@ var Seijaku = {
     this.initPrivateFlag();
     if (this.isPrivate) {
       document.documentElement.setAttribute("private", "true");
+      // The chrome's own stylesheets hide anything carrying hidden,
+      // whatever the page's CSS says, so the mark is unhidden here.
+      document.getElementById("private-badge").hidden = false;
     }
     if (this.isPopup) {
       // No frame, no strip, and never the main window's saved size.
