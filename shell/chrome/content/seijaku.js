@@ -127,7 +127,7 @@ const SESSION_FILE = "seijaku-session.json";
 const DATA_FILE = "seijaku-data.json";
 const HISTORY_LIMIT = 1000;
 const MESSAGE_MS = 4000;
-const SEIJAKU_VERSION = "1.0.6";
+const SEIJAKU_VERSION = "1.0.7";
 const UPDATE_REPO = "tacobellerontop-sudo/seijaku_";
 const UPDATE_CHECK_MS = 24 * 60 * 60 * 1000;
 // Session and data writes are batched: a page load reports its
@@ -390,7 +390,7 @@ var Seijaku = {
         this.selectedBrowser?.reload();
       }
     });
-    document.getElementById("tab-new").addEventListener("click", () => this.newTab());
+    document.getElementById("tab-new").addEventListener("click", () => this.newTabWithBar());
     document.getElementById("tab-undo").addEventListener("click", () => this.undoCloseTab());
     document.getElementById("bookmark-star").addEventListener("click", () => this.toggleBookmark());
     document.getElementById("strip-menu").addEventListener("click", () => this.openPage("settings"));
@@ -1270,9 +1270,15 @@ var Seijaku = {
     return (this._data?.bookmarks ?? []).some(b => b.url == url);
   },
 
+  /** Whether an address is a real page worth bookmarking: Seijaku's
+      own pages and the engine's blank and internal pages are not. */
+  bookmarkable(url) {
+    return !!url && /^(https?|file|ftp):/i.test(url);
+  },
+
   toggleBookmark() {
     let tab = this.selected;
-    if (!tab || !tab.url || tab.url == "about:blank") {
+    if (!tab || !this.bookmarkable(tab.url)) {
       this.showMessage("Nothing to bookmark on this tab");
       return;
     }
@@ -1290,7 +1296,60 @@ var Seijaku = {
       this.showMessage("Bookmarked");
     }
     this.saveData();
+    this.bookmarksChanged();
+  },
+
+  /** Adds a bookmark by address (the home page's + button). Typed
+      text goes through urlFor, so "example.com" works; a search is
+      refused rather than bookmarked. Returns the stored bookmark, or
+      throws with a message for the page to show. */
+  addBookmark(text, title = "", folder = "") {
+    text = String(text || "").trim();
+    let url = text ? this.urlFor(text) : "";
+    if (!this.bookmarkable(url) || url == this.searchURL(text)) {
+      throw new Error("That isn't a web address");
+    }
+    if (!this._data) {
+      this._data = emptyData();
+    }
+    folder = String(folder || "");
+    let mark = this._data.bookmarks.find(b => b.url == url);
+    if (mark) {
+      mark.folder = folder || mark.folder;
+      if (title) {
+        mark.title = title;
+      }
+    } else {
+      let host = url;
+      try {
+        host = new URL(url).host || url;
+      } catch (e) { /* the address itself is the name */ }
+      mark = { url, title: title || host, added: Date.now(), folder };
+      this._data.bookmarks.push(mark);
+    }
+    if (folder && !this._data.folders.includes(folder)) {
+      this._data.folders.push(folder);
+    }
+    this.saveData();
+    this.bookmarksChanged();
+    return mark;
+  },
+
+  /** After any bookmark change: the star, and every open home or
+      bookmarks page (theirs is a snapshot otherwise, so a page
+      bookmarked in another tab would not show up there). */
+  bookmarksChanged() {
     this.updateBookmarkStar();
+    for (let tab of this.tabs) {
+      let page = tab.url?.split("#")[0];
+      if (!tab.browser || (page != "seijaku:home" && page != "seijaku:bookmarks")) {
+        continue;
+      }
+      try {
+        let win = tab.browser.contentWindow;
+        win?.dispatchEvent(new win.Event("seijaku-bookmarks"));
+      } catch (e) { /* a page still loading renders fresh anyway */ }
+    }
   },
 
   removeBookmark(url) {
@@ -1299,7 +1358,7 @@ var Seijaku = {
     }
     this._data.bookmarks = this._data.bookmarks.filter(b => b.url != url);
     this.saveData();
-    this.updateBookmarkStar();
+    this.bookmarksChanged();
   },
 
   // -------------------------------------------------------------- bookmark folders, import, export
@@ -1350,6 +1409,7 @@ var Seijaku = {
       this._data.folders.push(folder);
     }
     this.saveData();
+    this.bookmarksChanged();
   },
 
   createBookmarkFolder(name) {
@@ -1530,6 +1590,7 @@ var Seijaku = {
     }
     if (added) {
       this.saveData();
+      this.bookmarksChanged();
     }
     return { added, skipped };
   },
@@ -2951,7 +3012,7 @@ var Seijaku = {
   },
 
   newTab() {
-    this.openTab(this.homepage());
+    return this.openTab(this.homepage());
   },
 
   openPage(name, hash = "") {
@@ -3565,10 +3626,38 @@ var Seijaku = {
     } catch (e) { /* already closed */ }
   },
 
-  /** Ctrl+T: a new tab, with the bar already open over it. */
+  /** Ctrl+T: a new tab. The home page has its own search box (it
+      takes the focus), so the floating bar only opens on Ctrl+L. A
+      home page set to some other address has no box, so there the
+      bar still opens, or there would be nowhere to type. */
   newTabWithBar() {
-    this.newTab();
-    this.showFloatingBar("");
+    let tab = this.newTab();
+    if (this.homepage() != "seijaku:home") {
+      this.showFloatingBar("");
+      return;
+    }
+    this.focusHomeSearch(tab);
+  },
+
+  /** Puts the caret in the home page's search box once it exists. */
+  focusHomeSearch(tab) {
+    let tries = 0;
+    let attempt = () => {
+      if (tab !== this.selected || !tab?.browser) {
+        return;
+      }
+      let input = null;
+      try {
+        input = tab.browser.contentDocument?.getElementById("search");
+      } catch (e) { /* not loaded yet */ }
+      if (input) {
+        tab.browser.focus();
+        input.focus();
+      } else if (tries++ < 40) {
+        setTimeout(attempt, 50);
+      }
+    };
+    attempt();
   },
 
   // -------------------------------------------------------------- suggestions

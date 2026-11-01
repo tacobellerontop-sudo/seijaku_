@@ -147,5 +147,21 @@ window.addEventListener("DOMContentLoaded", () => {
     }
     render();
   });
+  // The shell says when bookmarks change (Ctrl+D or the star in
+  // another tab, the home page's row), so this list is never stale.
+  window.addEventListener("seijaku-bookmarks", render);
   render();
+  // The data file loads asynchronously at startup: render again once
+  // it has, instead of showing "No bookmarks yet" until a reload.
+  let tries = 0;
+  let waitForData = () => {
+    if (shell()?.dataReady()) {
+      render();
+    } else if (tries++ < 40) {
+      setTimeout(waitForData, 150);
+    }
+  };
+  if (!shell()?.dataReady()) {
+    waitForData();
+  }
 });

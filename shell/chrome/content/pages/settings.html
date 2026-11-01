@@ -14,6 +14,17 @@
   <main>
     <h1>settings</h1>
     <p class="muted">A few settings. Everything else is already decided: quiet, light, and out of the way.</p>
+    <nav id="sections" aria-label="Settings sections">
+      <a href="#general">General</a>
+      <a href="#strip">Strip</a>
+      <a href="#privacy">Privacy</a>
+      <a href="#downloads">Downloads</a>
+      <a href="#video">Video</a>
+      <a href="#weather">Weather</a>
+      <a href="#updates">Updates</a>
+      <a href="#shortcuts">Shortcuts</a>
+    </nav>
+    <h2 id="general">general</h2>
     <label>
       Theme
       <select id="setting-theme">
@@ -53,6 +64,16 @@
         <option value="left">Left</option>
         <option value="right">Right</option>
       </select>
+    </label>
+    <label>
+      <input id="setting-tab-icons" type="checkbox" />
+      Show site icons in tabs
+      <span class="muted">Each site's own small icon, beside its tab's name. Private windows never show them.</span>
+    </label>
+    <label>
+      <input id="setting-autohide" type="checkbox" />
+      Auto-hide the strip — only the red line stays at its edge
+      <span class="muted">Move the mouse to the strip's edge (the red line) to bring it back; moving onto the page hides it again. Ctrl+Shift+H flips this setting.</span>
     </label>
     <label>
       Search engine
@@ -100,7 +121,7 @@
     <h2 id="strip">strip buttons</h2>
     <p class="muted">Which buttons show on the strip. Right-click the strip for the same list. Their keyboard shortcuts work either way.</p>
     <div id="strip-buttons"></div>
-    <h2>privacy</h2>
+    <h2 id="privacy">privacy</h2>
     <p class="muted">Tracking protection is the engine's own blocker. For stronger ad blocking, install uBlock Origin from the extensions page — it blocks more, and it is optional here on purpose.</p>
     <label>
       Tracking protection
@@ -109,6 +130,11 @@
         <option value="standard">Standard — block trackers, leave the rest alone</option>
         <option value="off">Off — no tracking protection</option>
       </select>
+    </label>
+    <label>
+      <input id="setting-permissions-allow" type="checkbox" />
+      Allow sites to use the camera, microphone and notifications without asking
+      <span class="muted">Off by default. When on, any site that asks gets access at once, with no prompt and no device choice. Location is always denied — Seijaku never asks for it.</span>
     </label>
     <div class="field" id="clear-data">
       Clear browsing data
@@ -122,7 +148,7 @@
       <button id="setting-clear-data" type="button">Clear selected data</button>
       <p id="clear-result" class="muted"></p>
     </div>
-    <h2>downloads</h2>
+    <h2 id="downloads">downloads</h2>
     <p class="muted">Files downloaded from pages land here, and so do
     annotated PDFs and bookmark exports. Changing it affects new
     downloads only — anything already downloaded stays where it is.</p>
@@ -138,13 +164,13 @@
       above — or the system Downloads folder when the field is empty.</span>
     </label>
 
-    <h2>protected video</h2>
+    <h2 id="video">protected video</h2>
     <p class="muted">Netflix, Disney+, Spotify and the like play through Google's Widevine, downloaded from Mozilla (about 10 MB) when you press the button. The browser's automatic check never runs on its own here, so this button asks for it now instead of waiting.</p>
     <p id="widevine-status" class="muted"></p>
     <p><button id="setting-widevine-install" type="button">Download Widevine</button></p>
     <p id="widevine-note" class="muted" hidden="hidden">Pages that already asked for protected video need a reload.</p>
 
-    <h2>weather</h2>
+    <h2 id="weather">weather</h2>
     <p class="muted">The home page's weather widget, from Open-Meteo (no account, no key). Changing the city re-geocodes it on the next home page load.</p>
     <label>
       <input id="setting-weather-enabled" type="checkbox" />
@@ -154,35 +180,22 @@
       Weather city
       <input id="setting-weather-city" type="text" spellcheck="false" />
     </label>
+    <h2 id="updates">updates</h2>
+    <p id="version-line">You're on Seijaku <strong id="version-current">…</strong>.</p>
+    <p id="version-engine" class="muted"></p>
     <label>
       <input id="setting-update" type="checkbox" />
       Check for updates on startup (at most once a day; a newer version downloads in the background and installs when you quit)
     </label>
-    <label>
-      <input id="setting-permissions-allow" type="checkbox" />
-      Allow sites to use the camera, microphone and notifications without asking
-      <span class="muted">Off by default. When on, any site that asks gets access at once, with no prompt and no device choice. Location is always denied — Seijaku never asks for it.</span>
-    </label>
-    <label>
-      <input id="setting-tab-icons" type="checkbox" />
-      Show site icons in tabs
-      <span class="muted">Each site's own small icon, beside its tab's name. Private windows never show them.</span>
-    </label>
-    <label>
-      <input id="setting-autohide" type="checkbox" />
-      Auto-hide the strip — only the red line stays at its edge
-      <span class="muted">Move the mouse to the strip's edge (the red line) to bring it back; moving onto the page hides it again. Ctrl+Shift+H flips this setting.</span>
-    </label>
-    <label>
-      Updates
+    <p>
       <button id="setting-update-now" type="button">Update Seijaku now</button>
       <span class="muted">Checks GitHub, downloads the installer, and restarts Seijaku on the new version.</span>
-    </label>
-    <h2>shortcuts</h2>
+    </p>
+    <h2 id="shortcuts">shortcuts</h2>
     <p class="muted">Every shortcut Seijaku answers.</p>
     <ul>
-      <li>Ctrl+T — new tab, with the floating bar open</li>
-      <li>Ctrl+L — floating bar for this tab</li>
+      <li>Ctrl+T — new tab (type in its search box)</li>
+      <li>Ctrl+L — address bar for this tab</li>
       <li>Ctrl+K — command palette (commands, tabs, bookmarks)</li>
       <li>Ctrl+W — close tab (or double-click it)</li>
       <li>Ctrl+Tab / Ctrl+Shift+Tab — next, previous tab</li>
