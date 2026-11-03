@@ -207,22 +207,67 @@
       return article.title;
     });
 
-    await check("camera and microphone prompt and grant", async () => {
+    // One prompt asks for camera and microphone together. A real
+    // camera also needs the engine's one-shot MediaManagerVideo grant
+    // on the page (the camera service checks it before opening the
+    // device); the fake camera here skips that service, so the grant
+    // is checked directly.
+    const pagePrincipal = () =>
+      Services.scriptSecurityManager.createContentPrincipalFromOrigin(new URL(BASE).origin);
+    const cameraGrant = () =>
+      Services.perms.testExactPermissionFromPrincipal(pagePrincipal(), "MediaManagerVideo");
+
+    await check("camera and microphone ask once and grant", async () => {
+      Services.perms.removeFromPrincipal(pagePrincipal(), "MediaManagerVideo");
       let gum = Seijaku.openTab(BASE + "gum.html");
-      await answerPrompt("camera", true);
-      await answerPrompt("microphone", true);
+      await answerPrompt("camera+microphone", true);
       await waitFor("getUserMedia to resolve", () => gum.title.startsWith("gum:") && gum.title != "gum:waiting");
-      assert(gum.title.startsWith("gum:ok"), gum.title);
+      assert(gum.title == "gum:ok:2", gum.title);
+      assert(cameraGrant() == Services.perms.ALLOW_ACTION, "no MediaManagerVideo grant: a real camera would not start");
+      Services.perms.removeFromPrincipal(pagePrincipal(), "MediaManagerVideo");
+
+      // The same site asking again in the same tab (a call site does,
+      // on join) is not prompted again for this visit.
+      Seijaku.load(gum.browser, BASE + "gum.html?again");
+      let prompted = false;
+      await waitFor("getUserMedia to resolve again", () => {
+        prompted ||= !!Seijaku._permActive;
+        return gum.title.startsWith("gum:") && gum.title != "gum:waiting" && gum.url.includes("again");
+      });
+      assert(!prompted, "the visit's grant was not used: prompted again");
+      assert(gum.title == "gum:ok:2", gum.title);
       Seijaku.closeTab(gum);
       return gum.title;
     });
 
     await check("camera denial reaches the page", async () => {
       let gum = Seijaku.openTab(BASE + "gum.html");
-      await answerPrompt("camera", false);
+      await answerPrompt("camera+microphone", false);
       await waitFor("getUserMedia to reject", () => gum.title != "gum:waiting" && gum.title.startsWith("gum:"));
       assert(gum.title == "gum:error:NotAllowedError", gum.title);
       Seijaku.closeTab(gum);
+    });
+
+    await check("screen sharing shows a picker and shares the screen", async () => {
+      let page = await openAndLoad("gdm.html");
+      let tries = 0;
+      await waitFor("a screen sharing prompt", () => {
+        if (page.title == "gdm:waiting" && tries++ % 10 == 0) {
+          pageMouse(page.browser, [["mousedown", 40, 40, 0], ["mouseup", 40, 40, 0]]);
+        }
+        return Seijaku._permActive?.type == "screen";
+      });
+      let options = [...document.querySelectorAll('#perm-choices input[name="perm-screen"]')];
+      assert(options.length >= 1, "nothing to share in the picker");
+      assert(document.getElementById("perm-allow").disabled, "Allow was on before anything was picked");
+      let labels = Seijaku._permActive.choices.screen.map(c => c.label).join(" | ");
+      options[0].checked = true;
+      Seijaku.updatePermissionAllow();
+      Seijaku.answerPermission(true, false);
+      await waitFor("getDisplayMedia to answer", () => /^gdm:(ok|error)/.test(page.title), 30000);
+      assert(page.title == "gdm:ok:1", `${page.title} (choices: ${labels})`);
+      Seijaku.closeTab(page);
+      return `${page.title}; ${options.length} choices: ${labels.slice(0, 200)}`;
     });
 
     await check("peer connection offer does not hang", async () => {
