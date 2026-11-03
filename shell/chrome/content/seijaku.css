@@ -1029,6 +1029,9 @@ body {
   margin-bottom: 12px;
   line-height: 1.6;
 }
+#perm-text {
+  white-space: normal;
+}
 #site-host {
   font-family: var(--serif);
   font-size: 16px;
@@ -1079,6 +1082,42 @@ body {
 #ext-prompt-accept {
   border-color: var(--accent) !important;
   background: var(--accent-wash) !important;
+}
+/* Device lists (more than one camera or microphone, or what to share
+   on screen). Long lists scroll; long names are cut, with the full
+   name on hover. */
+#perm-choices {
+  max-height: 220px;
+  overflow-y: auto;
+  margin-bottom: 12px;
+}
+#perm-choices[hidden],
+#perm-remember-row[hidden] {
+  display: none;
+}
+.perm-choice-group + .perm-choice-group {
+  margin-top: 8px;
+}
+.perm-choice-title {
+  color: var(--muted);
+  font-size: 11px;
+  margin-bottom: 4px;
+}
+.perm-choice {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 0;
+  cursor: pointer;
+}
+.perm-choice span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+#perm-allow:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 #perm-manage[hidden] {
   display: none;

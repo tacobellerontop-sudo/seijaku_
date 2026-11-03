@@ -10,7 +10,8 @@
       was silently denied. It is registered from here instead, through
       the component registrar, once per process.
 
-   2. getUserMedia (camera, microphone) and RTCPeerConnection never go
+   2. getUserMedia (camera, microphone), getDisplayMedia (screen
+      sharing) and RTCPeerConnection never go
       through that prompt: the engine posts an observer notification
       in the page's content process and waits for an answer. With
       nobody listening, a video call page waited forever. The
@@ -67,7 +68,7 @@ const prompter = {
         request.cancel();
         return;
       }
-      let win = findShellWindow();
+      let win = windowFor(request.element);
       if (!win?.Seijaku?.queuePermissionRequest) {
         request.cancel();
         return;
@@ -120,51 +121,118 @@ export function register() {
   }
 }
 
-/** Parent half of the SeijakuMedia actor: one camera or microphone
-    request from a page, answered through the shell's prompt. Resolves
-    true for Allow. Camera and microphone together are asked one after
-    the other, and both must be allowed. */
+/** The Seijaku window that shows a tab's <browser>, else the most
+    recent one: a prompt belongs in front of the page that asked. */
+function windowFor(browser) {
+  try {
+    let win = browser?.ownerDocument?.defaultView;
+    if (win?.Seijaku) {
+      return win;
+    }
+  } catch (e) { /* not a shell browser */ }
+  return findShellWindow();
+}
+
+const MEDIA_TYPES = ["camera", "microphone", "screen"];
+
+/** Parent half of the SeijakuMedia actor: one camera, microphone or
+    screen request from a page, answered through the shell's prompt.
+    Resolves { picks: { kind: index } } for Allow, false otherwise.
+
+    A real camera or screen capture also needs the engine's one-shot
+    "MediaManagerVideo" permission on the top-level page: the camera
+    service in this process checks it (and removes it) before it opens
+    the device. Firefox's front end adds it on every Allow; without it
+    every real camera failed to start, even after Allow, while the
+    smoke test's fake camera (which skips that service) passed. */
 export class SeijakuMediaParent extends JSProcessActorParent {
   async receiveMessage(message) {
     if (message.name != "Seijaku:MediaRequest") {
       return false;
     }
-    let { innerWindowId, types } = message.data;
+    let { innerWindowId, types, choices } = message.data || {};
     // The asking page, looked up here rather than taken from the
     // child: a compromised content process must not be able to claim
     // another site's remembered Allow. It has to be a page that really
     // lives in the process that sent the request.
     let host = "";
+    let page;
+    let topPage;
+    let browser = null;
     try {
-      let page = WindowGlobalParent.getByInnerWindowId(innerWindowId);
+      page = WindowGlobalParent.getByInnerWindowId(innerWindowId);
       if (!page || page.domProcess?.childID != this.manager.childID) {
         return false;
       }
       host = page.documentPrincipal.host || "";
+      topPage = page.browsingContext.top.currentWindowGlobal;
+      browser = page.browsingContext.top.embedderElement || null;
     } catch (e) {
       return false;
     }
-    types = (Array.isArray(types) ? types : []).filter(t => t == "camera" || t == "microphone");
+    types = (Array.isArray(types) ? types : []).filter(t => MEDIA_TYPES.includes(t));
+    types = [...new Set(types)];
+    // Screen sharing is asked on its own, never with a camera.
+    if (types.includes("screen")) {
+      types = ["screen"];
+    }
+    let clean = {};
+    for (let type of types) {
+      let list = Array.isArray(choices?.[type]) ? choices[type].slice(0, 64) : [];
+      clean[type] = list.map((item, i) => ({
+        id: String(item?.id ?? i).slice(0, 400),
+        label: String(item?.label ?? "").slice(0, 200) || `Device ${i + 1}`,
+      }));
+    }
+    types = types.filter(t => clean[t].length);
     if (!types.length) {
       return false;
     }
-    for (let type of types) {
-      let allowed = await new Promise(resolve => {
-        let win = findShellWindow();
-        if (!win?.Seijaku?.queuePermissionRequest) {
-          resolve(false);
-          return;
-        }
-        win.Seijaku.queuePermissionRequest(
-          { allow: () => resolve(true), cancel: () => resolve(false) },
+    let win = windowFor(browser);
+    if (!win?.Seijaku?.queueMediaRequest) {
+      return false;
+    }
+    let picks = await new Promise(resolve => {
+      try {
+        win.Seijaku.queueMediaRequest({
           host,
-          type
-        );
-      });
-      if (!allowed) {
+          types,
+          choices: clean,
+          browser,
+          allow: chosen => resolve(chosen || null),
+          cancel: () => resolve(null),
+        });
+      } catch (e) {
+        resolve(null);
+      }
+    });
+    if (!picks) {
+      return false;
+    }
+    let result = {};
+    for (let type of types) {
+      let index = picks[type];
+      if (!Number.isInteger(index) || index < 0 || index >= clean[type].length) {
         return false;
       }
+      result[type] = index;
     }
-    return true;
+    if (result.camera !== undefined || result.screen !== undefined) {
+      try {
+        for (let principal of new Set([topPage?.documentPrincipal, page.documentPrincipal])) {
+          if (principal && !principal.isNullPrincipal) {
+            Services.perms.addFromPrincipal(
+              principal,
+              "MediaManagerVideo",
+              Services.perms.ALLOW_ACTION,
+              Services.perms.EXPIRE_SESSION
+            );
+          }
+        }
+      } catch (e) {
+        console.error("Seijaku: granting the camera to the page", e);
+      }
+    }
+    return { picks: result };
   }
 }

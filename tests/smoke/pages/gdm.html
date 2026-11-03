@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>gdm:waiting</title>
+<style>button { position: absolute; left: 0; top: 0; width: 200px; height: 120px; }</style></head><body>
+<button id="share">Share</button>
+<script>
+// Screen sharing needs a click (user activation); the smoke test
+// clicks the button. The stream is stopped at once.
+document.getElementById("share").addEventListener("click", () => {
+  document.title = "gdm:asking";
+  navigator.mediaDevices.getDisplayMedia({ video: true })
+    .then(stream => {
+      document.title = "gdm:ok:" + stream.getVideoTracks().length;
+      stream.getTracks().forEach(t => t.stop());
+    })
+    .catch(e => { document.title = "gdm:error:" + e.name; });
+});
+</script></body></html>

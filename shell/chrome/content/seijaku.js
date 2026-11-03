@@ -128,7 +128,7 @@ const SESSION_FILE = "seijaku-session.json";
 const DATA_FILE = "seijaku-data.json";
 const HISTORY_LIMIT = 1000;
 const MESSAGE_MS = 4000;
-const SEIJAKU_VERSION = "1.0.9";
+const SEIJAKU_VERSION = "1.0.10";
 const UPDATE_REPO = "tacobellerontop-sudo/seijaku_";
 const UPDATE_CHECK_MS = 24 * 60 * 60 * 1000;
 // Session and data writes are batched: a page load reports its
@@ -308,6 +308,13 @@ var Seijaku = {
   // Permission prompts waiting for an answer, and the one on screen.
   _permQueue: [],
   _permActive: null,
+  // Camera and microphone grants for this visit, per tab: a site that
+  // was allowed once (without Remember) is not asked again for an
+  // hour in that tab, as in Firefox. A call site such as Zoom asks
+  // several times (preview, join, switching devices).
+  _mediaGrants: new WeakMap(),
+  // The device last picked per site and kind, offered first next time.
+  _mediaLastPick: new Map(),
   // The article the reader page renders, set by openReader.
   _readerArticle: null,
   // The extension host, once AddonManager has started.
@@ -4218,6 +4225,7 @@ var Seijaku = {
     }
     this.updateUndoButton();
     this.tabEvent("TabClose", tab);
+    this.cancelPermissionsFor(tab.browser);
     this.tabs.splice(index, 1);
     tab.el.remove();
     tab.browser?.remove();
@@ -4680,6 +4688,7 @@ var Seijaku = {
     return {
       camera: "use the camera",
       microphone: "use the microphone",
+      screen: "see your screen",
       "desktop-notification": "show notifications",
       geolocation: "know your location",
     }[type] || `use ${type}`;
@@ -4762,12 +4771,122 @@ var Seijaku = {
         request.cancel();
         return;
       }
-      this._permQueue.push({ request, host, type });
+      let browser = null;
+      try {
+        browser = request.element || null;
+      } catch (e) { /* no element: not tied to a tab */ }
+      this._permQueue.push({ request, host, type, types: [type], browser });
       this.nextPermission();
     } catch (e) {
       try {
         request.cancel();
       } catch (_e) { /* already answered */ }
+    }
+  },
+
+  /** Camera, microphone and screen requests from SeijakuMediaParent
+      (PermissionPrompt.sys.mjs). req has host, types (camera and/or
+      microphone, or screen alone), choices (per type, the devices as
+      { id, label }), the tab's browser, and allow(picks) / cancel().
+      picks maps each type to the index of the chosen device.
+
+      Camera and microphone are asked in one prompt, with a device
+      list when there is more than one. Remembered decisions, the
+      Settings allow-switch and this visit's grants answer without a
+      prompt. Screen sharing is always asked and never remembered,
+      and nothing is picked for the user: they choose what to share. */
+  queueMediaRequest(req) {
+    try {
+      let { host, types, choices } = req;
+      let picks = {};
+      let ask = [];
+      for (let type of types) {
+        let list = choices[type] || [];
+        if (!list.length) {
+          req.cancel();
+          return;
+        }
+        if (type == "screen") {
+          ask.push(type);
+          continue;
+        }
+        let remembered = host ? this.getPermissionsFor(host)[type] : null;
+        if (remembered == "block" && !this.permissionAllowSwitchOn(type)) {
+          req.cancel();
+          return;
+        }
+        if (remembered == "allow" || this.permissionAllowSwitchOn(type) || this.hasMediaGrant(req.browser, host, type)) {
+          picks[type] = this.preferredDevice(host, type, list);
+          continue;
+        }
+        ask.push(type);
+      }
+      if (!ask.length) {
+        req.allow(picks);
+        return;
+      }
+      this._permQueue.push({
+        request: req,
+        host,
+        type: ask.join("+"),
+        types: ask,
+        media: true,
+        choices,
+        picks,
+        browser: req.browser || null,
+      });
+      this.nextPermission();
+    } catch (e) {
+      try {
+        req.cancel();
+      } catch (_e) { /* already answered */ }
+    }
+  },
+
+  preferredDevice(host, type, list) {
+    let last = this._mediaLastPick.get(`${host}|${type}`);
+    let index = last ? list.findIndex(item => item.id == last) : -1;
+    return index >= 0 ? index : 0;
+  },
+
+  hasMediaGrant(browser, host, type) {
+    if (!browser || !host) {
+      return false;
+    }
+    let until = this._mediaGrants.get(browser)?.get(`${host}|${type}`);
+    return !!until && until > Date.now();
+  },
+
+  addMediaGrant(browser, host, type) {
+    if (!browser || !host || type == "screen") {
+      return;
+    }
+    let ms = 3600000;
+    try {
+      ms = Services.prefs.getIntPref("privacy.temporary_permission_expire_time_ms", ms);
+    } catch (e) { /* the default hour */ }
+    let grants = this._mediaGrants.get(browser);
+    if (!grants) {
+      grants = new Map();
+      this._mediaGrants.set(browser, grants);
+    }
+    grants.set(`${host}|${type}`, Date.now() + ms);
+  },
+
+  /** A closed tab's prompts go away with it (answered Block). */
+  cancelPermissionsFor(browser) {
+    if (!browser) {
+      return;
+    }
+    let gone = this._permQueue.filter(entry => entry.browser === browser);
+    this._permQueue = this._permQueue.filter(entry => entry.browser !== browser);
+    for (let entry of gone) {
+      try {
+        entry.request.cancel();
+      } catch (e) { /* the request went away */ }
+    }
+    if (this._permActive?.browser === browser) {
+      this.answerPermission(false, false);
     }
   },
 
@@ -4778,6 +4897,79 @@ var Seijaku = {
     let entry = this._permQueue.shift();
     this._permActive = entry;
     this.showPermissionPrompt(entry);
+  },
+
+  /** The text for what a prompt asks: "use the camera and the
+      microphone". */
+  permissionAskText(types) {
+    let parts = types.map(type => this.permissionTypeText(type));
+    if (types.length == 2 && types.includes("camera") && types.includes("microphone")) {
+      return "use the camera and microphone";
+    }
+    return parts.join(" and ");
+  },
+
+  /** Device lists in the prompt: one per kind with a real choice. */
+  fillPermissionChoices(entry) {
+    let box = document.getElementById("perm-choices");
+    box.replaceChildren();
+    box.hidden = true;
+    if (!entry.media) {
+      return;
+    }
+    let titles = { camera: "Camera", microphone: "Microphone", screen: "Share" };
+    for (let type of entry.types) {
+      let list = entry.choices[type] || [];
+      if (list.length < 2 && type != "screen") {
+        continue;
+      }
+      let group = document.createElement("div");
+      group.className = "perm-choice-group";
+      let title = document.createElement("div");
+      title.className = "perm-choice-title";
+      title.textContent = titles[type] || type;
+      group.append(title);
+      let preferred = type == "screen" ? -1 : this.preferredDevice(entry.host, type, list);
+      list.forEach((item, i) => {
+        let row = document.createElement("label");
+        row.className = "perm-choice";
+        let input = document.createElement("input");
+        input.type = "radio";
+        input.name = `perm-${type}`;
+        input.value = String(i);
+        input.checked = i == preferred;
+        input.addEventListener("change", () => this.updatePermissionAllow());
+        let text = document.createElement("span");
+        text.textContent = item.label;
+        text.title = item.label;
+        row.append(input, text);
+        group.append(row);
+      });
+      box.append(group);
+      box.hidden = false;
+    }
+  },
+
+  /** The picked device per kind, or null when one is still unpicked. */
+  permissionPicks(entry) {
+    let picks = { ...entry.picks };
+    for (let type of entry.types) {
+      let list = entry.choices[type] || [];
+      let checked = document.querySelector(`#perm-choices input[name="perm-${type}"]:checked`);
+      if (checked) {
+        picks[type] = Number(checked.value);
+      } else if (type != "screen" && list.length) {
+        picks[type] = this.preferredDevice(entry.host, type, list);
+      } else {
+        return null;
+      }
+    }
+    return picks;
+  },
+
+  updatePermissionAllow() {
+    let entry = this._permActive;
+    document.getElementById("perm-allow").disabled = !!entry?.media && !this.permissionPicks(entry);
   },
 
   initPermissionPanel() {
@@ -4813,8 +5005,15 @@ var Seijaku = {
     document.getElementById("perm-prompt").hidden = false;
     document.getElementById("perm-manage").hidden = true;
     document.getElementById("perm-text").textContent =
-      `${entry.host || "This site"} wants to ${this.permissionTypeText(entry.type)}.`;
+      `${entry.host || "This site"} wants to ${this.permissionAskText(entry.types || [entry.type])}.`;
     document.getElementById("perm-remember").checked = false;
+    // Screen sharing is asked every time, so it has nothing to remember.
+    document.getElementById("perm-remember-row").hidden = entry.types?.includes("screen") ?? false;
+    this.fillPermissionChoices(entry);
+    this.updatePermissionAllow();
+    // A prompt stays until it is answered: a click on the page (say,
+    // on a call site's own "allow camera" hint) must not count as Block.
+    panel.setAttribute("noautohide", "true");
     try {
       let width = 360;
       let x = Math.max(0, window.screenX + Math.round((window.outerWidth - width) / 2));
@@ -4835,12 +5034,28 @@ var Seijaku = {
     try {
       document.getElementById("perm-panel").hidePopup();
     } catch (e) { /* already closed */ }
-    if (remember && entry.host) {
-      this.setPermission(entry.host, entry.type, allow ? "allow" : "block");
+    let picks = null;
+    if (allow && entry.media) {
+      picks = this.permissionPicks(entry);
+      if (!picks) {
+        allow = false;
+      }
+    }
+    for (let type of entry.types || [entry.type]) {
+      if (remember && entry.host && type != "screen") {
+        this.setPermission(entry.host, type, allow ? "allow" : "block");
+      }
+      if (allow && entry.media && type != "screen") {
+        this.addMediaGrant(entry.browser, entry.host, type);
+        let item = entry.choices[type]?.[picks[type]];
+        if (item?.id) {
+          this._mediaLastPick.set(`${entry.host}|${type}`, item.id);
+        }
+      }
     }
     try {
       if (allow) {
-        entry.request.allow();
+        entry.request.allow(picks || undefined);
       } else {
         entry.request.cancel();
       }
@@ -4873,6 +5088,7 @@ var Seijaku = {
       return;
     }
     let panel = document.getElementById("perm-panel");
+    panel.removeAttribute("noautohide");
     document.getElementById("perm-prompt").hidden = true;
     let manage = document.getElementById("perm-manage");
     manage.hidden = false;
