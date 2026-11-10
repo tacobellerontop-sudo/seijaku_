@@ -1,0 +1,15 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>print:waiting</title>
+<p>Seijaku print test page. It calls window.print() itself, the way a page's own Print button (or the PDF viewer's) does.</p>
+<script>
+  setTimeout(() => {
+    document.title = "print:called";
+    try {
+      window.print();
+      document.title = "print:returned";
+    } catch (e) {
+      document.title = "print:error " + e.message;
+    }
+  }, 300);
+</script>

@@ -777,6 +777,126 @@
       assert(!added.length, added.join(", "));
     });
 
+    /* Save and print, with the Windows dialogs stood in for (headless
+       has none, and the engine won't even set up a file picker): the
+       save dialog answers with a file in the temp folder, the print
+       dialog with "print to a PDF file". Everything else (the viewer
+       building the file, the download, the engine's printing) runs as
+       it does for a person. */
+    let dir = PathUtils.join(PathUtils.tempDir, "seijaku save print test");
+    await IOUtils.makeDirectory(dir, { ignoreExisting: true });
+    let pickSavePath = Seijaku.pickSavePath;
+    let askPrintSettings = Seijaku.askPrintSettings;
+    let printedTo = name => {
+      let PSSVC = Cc["@mozilla.org/gfx/printsettings-service;1"].getService(Ci.nsIPrintSettingsService);
+      let settings = PSSVC.createNewPrintSettings();
+      settings.printerName = "Mozilla Save to PDF";
+      settings.outputFormat = Ci.nsIPrintSettings.kOutputFormatPDF;
+      settings.outputDestination = Ci.nsIPrintSettings.kOutputDestinationFile;
+      settings.toFileName = PathUtils.join(dir, name);
+      settings.printSilent = true;
+      return settings;
+    };
+    async function pdfFile(path, what) {
+      let bytes = await waitFor(what, async () => {
+        let b = await IOUtils.read(path);
+        // Finished: a PDF ends with %%EOF (and maybe a line break).
+        return b.length > 100 && new TextDecoder().decode(b.slice(-32)).includes("%%EOF") ? b : null;
+      }, 60000);
+      let head = new TextDecoder().decode(bytes.slice(0, 5));
+      assert(head == "%PDF-", `not a PDF: ${head}`);
+      return `${bytes.length} bytes`;
+    }
+    let printBrowsers = () => document.querySelectorAll("browser[seijaku-print]").length;
+
+    await check("the PDF viewer's Download button saves the PDF", async () => {
+      let asked = [];
+      Seijaku.pickSavePath = async fileName => {
+        asked.push(fileName);
+        return PathUtils.join(dir, "saved.pdf");
+      };
+      let messages = [];
+      let showMessage = Seijaku.showMessage;
+      Seijaku.showMessage = (text, ...rest) => {
+        messages.push(text);
+        return showMessage.call(Seijaku, text, ...rest);
+      };
+      try {
+        Seijaku.selectTab(pdf);
+        // What the Download button (and Ctrl+S) does: the viewer builds
+        // the file and hands it to the window's saveURL.
+        assert(Seijaku.pdfMessage(pdf, "PDFJS:Save"), "the tab isn't showing the PDF viewer");
+        await waitFor("the save dialog", () => asked.length || messages.length, 30000);
+        assert(!messages.length, messages.join(" / "));
+        assert(/\.pdf$/i.test(asked[0]), `suggested name: ${asked[0]}`);
+        // The bug 1.0.11 fixed: reading the name back from the Windows
+        // dialog always throws there.
+        assert(!/\.defaultString(?!\s*=)/.test(String(Seijaku.pickSavePath) + String(Seijaku.saveURL) + String(pickSavePath)),
+          "the save dialog's name is read back");
+        return `${asked[0]}: ${await pdfFile(PathUtils.join(dir, "saved.pdf"), "the saved PDF")}`;
+      } finally {
+        Seijaku.pickSavePath = pickSavePath;
+        Seijaku.showMessage = showMessage;
+      }
+    });
+
+    await check("Ctrl+P prints the PDF", async () => {
+      let tabsBefore = Seijaku.tabs.length;
+      Seijaku.askPrintSettings = async () => printedTo("ctrl-p.pdf");
+      try {
+        Seijaku.selectTab(pdf);
+        await Seijaku.printPage();
+        let size = await pdfFile(PathUtils.join(dir, "ctrl-p.pdf"), "the printed PDF");
+        assert(Seijaku.tabs.length == tabsBefore, "printing opened a tab");
+        await waitFor("the print copy to go", () => printBrowsers() == 0);
+        return size;
+      } finally {
+        Seijaku.askPrintSettings = askPrintSettings;
+      }
+    });
+
+    await check("a page's own Print button (window.print) prints", async () => {
+      let asked = 0;
+      Seijaku.askPrintSettings = async () => {
+        asked++;
+        return printedTo("window-print.pdf");
+      };
+      let page;
+      try {
+        let tabsBefore = Seijaku.tabs.length;
+        page = Seijaku.openTab(BASE + "print.html");
+        Seijaku.selectTab(page);
+        await waitFor("the page to ask to print", () => asked > 0, 30000);
+        let size = await pdfFile(PathUtils.join(dir, "window-print.pdf"), "the printed page");
+        assert(Seijaku.tabs.length == tabsBefore + 1, "printing opened a tab");
+        await waitFor("window.print() to return", () => page.title == "print:returned", 30000);
+        await waitFor("the print copy to go", () => printBrowsers() == 0);
+        return size;
+      } finally {
+        Seijaku.askPrintSettings = askPrintSettings;
+        if (page) {
+          Seijaku.closeTab(page);
+        }
+      }
+    });
+
+    await check("printing cancelled in the dialog leaves nothing behind", async () => {
+      Seijaku.askPrintSettings = async () => null;
+      let page;
+      try {
+        page = Seijaku.openTab(BASE + "print.html");
+        Seijaku.selectTab(page);
+        await waitFor("window.print() to return", () => page.title == "print:returned", 30000);
+        await waitFor("the print copy to go", () => printBrowsers() == 0);
+      } finally {
+        Seijaku.askPrintSettings = askPrintSettings;
+        if (page) {
+          Seijaku.closeTab(page);
+        }
+      }
+    });
+    await IOUtils.remove(dir, { recursive: true, ignoreAbsent: true }).catch(() => {});
+
     if (pdf) {
       Seijaku.closeTab(pdf);
     }
