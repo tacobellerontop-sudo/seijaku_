@@ -778,10 +778,11 @@
     });
 
     /* Save and print, with the Windows dialogs stood in for (headless
-       has none): the save dialog answers with a file in the temp
-       folder, the print dialog with "print to a PDF file". Everything
-       else (setting up the real save dialog, the engine's printing)
-       runs as it does for a person. */
+       has none, and the engine won't even set up a file picker): the
+       save dialog answers with a file in the temp folder, the print
+       dialog with "print to a PDF file". Everything else (the viewer
+       building the file, the download, the engine's printing) runs as
+       it does for a person. */
     let dir = PathUtils.join(PathUtils.tempDir, "seijaku save print test");
     await IOUtils.makeDirectory(dir, { ignoreExisting: true });
     let pickSavePath = Seijaku.pickSavePath;
@@ -810,7 +811,7 @@
 
     await check("the PDF viewer's Download button saves the PDF", async () => {
       let asked = [];
-      Seijaku.pickSavePath = async (picker, fileName) => {
+      Seijaku.pickSavePath = async fileName => {
         asked.push(fileName);
         return PathUtils.join(dir, "saved.pdf");
       };
@@ -828,6 +829,10 @@
         await waitFor("the save dialog", () => asked.length || messages.length, 30000);
         assert(!messages.length, messages.join(" / "));
         assert(/\.pdf$/i.test(asked[0]), `suggested name: ${asked[0]}`);
+        // The bug 1.0.11 fixed: reading the name back from the Windows
+        // dialog always throws there.
+        assert(!/\.defaultString(?!\s*=)/.test(String(Seijaku.pickSavePath) + String(Seijaku.saveURL) + String(pickSavePath)),
+          "the save dialog's name is read back");
         return `${asked[0]}: ${await pdfFile(PathUtils.join(dir, "saved.pdf"), "the saved PDF")}`;
       } finally {
         Seijaku.pickSavePath = pickSavePath;

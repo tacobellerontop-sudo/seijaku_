@@ -2638,21 +2638,7 @@ var Seijaku = {
 
   async saveURL(url, { referrerInfo = null, name = "" } = {}) {
     try {
-      let picker = Cc["@mozilla.org/filepicker;1"].createInstance(Ci.nsIFilePicker);
-      this.pickerInit(picker, "Save as", Ci.nsIFilePicker.modeSave);
-      // The name is kept here: on Windows reading defaultString back
-      // throws NS_ERROR_FAILURE, which broke every Save as.
-      let fileName = name || this.fileNameFor(url);
-      picker.defaultString = fileName;
-      let ext = /\.([a-z0-9]{1,8})$/i.exec(fileName)?.[1];
-      if (ext) {
-        picker.defaultExtension = ext;
-      }
-      try {
-        picker.displayDirectory = this.downloadDir();
-      } catch (e) { /* the picker's own folder */ }
-      picker.appendFilters(Ci.nsIFilePicker.filterAll);
-      let path = await this.pickSavePath(picker, fileName);
+      let path = await this.pickSavePath(name || this.fileNameFor(url));
       if (!path) {
         return;
       }
@@ -2668,8 +2654,22 @@ var Seijaku = {
     }
   },
 
-  /** Shows the save dialog; the chosen file's path, or null. */
-  async pickSavePath(picker, fileName) {
+  /** The Windows save dialog, with fileName filled in: the chosen
+      file's path, or null when it is cancelled. The name is never read
+      back from the dialog: on Windows reading defaultString throws
+      NS_ERROR_FAILURE, which broke every Save as before 1.0.11. */
+  async pickSavePath(fileName) {
+    let picker = Cc["@mozilla.org/filepicker;1"].createInstance(Ci.nsIFilePicker);
+    this.pickerInit(picker, "Save as", Ci.nsIFilePicker.modeSave);
+    picker.defaultString = fileName;
+    let ext = /\.([a-z0-9]{1,8})$/i.exec(fileName)?.[1];
+    if (ext) {
+      picker.defaultExtension = ext;
+    }
+    try {
+      picker.displayDirectory = this.downloadDir();
+    } catch (e) { /* the picker's own folder */ }
+    picker.appendFilters(Ci.nsIFilePicker.filterAll);
     let result = await picker.open();
     if (
       (result != Ci.nsIFilePicker.returnOK && result != Ci.nsIFilePicker.returnReplace) ||
