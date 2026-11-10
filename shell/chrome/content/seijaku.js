@@ -128,7 +128,7 @@ const SESSION_FILE = "seijaku-session.json";
 const DATA_FILE = "seijaku-data.json";
 const HISTORY_LIMIT = 1000;
 const MESSAGE_MS = 4000;
-const SEIJAKU_VERSION = "1.0.10";
+const SEIJAKU_VERSION = "1.0.11";
 const UPDATE_REPO = "tacobellerontop-sudo/seijaku_";
 const UPDATE_CHECK_MS = 24 * 60 * 60 * 1000;
 // Session and data writes are batched: a page load reports its
@@ -936,12 +936,18 @@ var Seijaku = {
       provider = {
         QueryInterface: ChromeUtils.generateQI([Ci.nsIBrowserDOMWindow]),
         createContentWindow(uri, openWindowInfo, where, flags, triggeringPrincipal) {
+          if (where == Ci.nsIBrowserDOMWindow.OPEN_PRINT_BROWSER) {
+            return Seijaku.openPrintBrowser(openWindowInfo).browsingContext;
+          }
           return Seijaku.openPopup({ uri, openWindowInfo, where, flags, triggeringPrincipal, skipLoad: true })?.browsingContext ?? null;
         },
         openURI(uri, openWindowInfo, where, flags, triggeringPrincipal) {
           return Seijaku.openPopup({ uri, openWindowInfo, where, flags, triggeringPrincipal })?.browsingContext ?? null;
         },
         createContentWindowInFrame(uri, params, where, flags, name) {
+          if (where == Ci.nsIBrowserDOMWindow.OPEN_PRINT_BROWSER) {
+            return Seijaku.openPrintBrowser(params.openWindowInfo);
+          }
           return Seijaku.openPopup({ params, where, flags, name, skipLoad: true });
         },
         openURIInFrame(uri, params, where, flags, name) {
@@ -2089,28 +2095,93 @@ var Seijaku = {
       return;
     }
     try {
-      let PSSVC = Cc["@mozilla.org/gfx/printsettings-service;1"].getService(Ci.nsIPrintSettingsService);
-      let settings = PSSVC.createNewPrintSettings();
-      settings.printerName =
-        PSSVC.lastUsedPrinterName ||
-        Cc["@mozilla.org/gfx/printerlist;1"].getService(Ci.nsIPrinterList).systemDefaultPrinterName;
-      try {
-        PSSVC.initPrintSettingsFromPrinter(settings.printerName, settings);
-        PSSVC.initPrintSettingsFromPrefs(settings, true, Ci.nsIPrintSettings.kInitSaveAll);
-      } catch (e) { /* the printer's defaults are enough */ }
-      let dialog = Cc["@mozilla.org/widget/printdialog-service;1"].getService(Ci.nsIPrintDialogService);
-      try {
-        await dialog.showPrintDialog(window, false, settings);
-      } catch (e) {
-        if (e.result == Cr.NS_ERROR_ABORT) {
-          return;
-        }
-        throw e;
+      let settings = await this.askPrintSettings();
+      if (settings) {
+        await bc.print(settings);
       }
-      PSSVC.maybeSaveLastUsedPrinterNameToPrefs(settings.printerName);
-      PSSVC.maybeSavePrintSettingsToPrefs(settings, Ci.nsIPrintSettings.kPrintDialogPersistSettings);
-      await bc.print(settings);
     } catch (e) {
+      this.showMessage(`Couldn't print: ${e.message}`, "error");
+    }
+  },
+
+  /** The Windows print dialog: print settings for the chosen printer,
+      or null when it is cancelled. */
+  async askPrintSettings() {
+    let PSSVC = Cc["@mozilla.org/gfx/printsettings-service;1"].getService(Ci.nsIPrintSettingsService);
+    let settings = PSSVC.createNewPrintSettings();
+    settings.printerName =
+      PSSVC.lastUsedPrinterName ||
+      Cc["@mozilla.org/gfx/printerlist;1"].getService(Ci.nsIPrinterList).systemDefaultPrinterName;
+    try {
+      PSSVC.initPrintSettingsFromPrinter(settings.printerName, settings);
+      PSSVC.initPrintSettingsFromPrefs(settings, true, Ci.nsIPrintSettings.kInitSaveAll);
+    } catch (e) { /* the printer's defaults are enough */ }
+    let dialog = Cc["@mozilla.org/widget/printdialog-service;1"].getService(Ci.nsIPrintDialogService);
+    try {
+      await dialog.showPrintDialog(window, false, settings);
+    } catch (e) {
+      if (e.result == Cr.NS_ERROR_ABORT) {
+        return null;
+      }
+      throw e;
+    }
+    PSSVC.maybeSaveLastUsedPrinterNameToPrefs(settings.printerName);
+    PSSVC.maybeSavePrintSettingsToPrefs(settings, Ci.nsIPrintSettings.kPrintDialogPersistSettings);
+    return settings;
+  },
+
+  /** Printing works on a copy of the page (a "static clone") that the
+      engine builds in a <browser> it asks the window for, through
+      nsIBrowserDOMWindow with OPEN_PRINT_BROWSER. In Firefox the front
+      end's PrintUtils answers; here it is this hidden browser. Without
+      it the copy went into a stray tab and the page's own Print button
+      (window.print(), which the PDF viewer uses) failed.
+      For window.print() the copy is all the engine has done: the
+      window still asks which printer and prints the copy. For Ctrl+P
+      (printPage) the engine is already printing it. When printing is
+      done the engine closes the copy, and its browser goes. */
+  openPrintBrowser(openWindowInfo) {
+    let browser = document.createXULElement("browser");
+    browser.openWindowInfo = openWindowInfo;
+    browser.setAttribute("type", "content");
+    browser.setAttribute("seijaku-print", "true");
+    let remoteType = openWindowInfo.parent?.currentRemoteType;
+    if (remoteType) {
+      browser.setAttribute("remoteType", remoteType);
+      browser.setAttribute("remote", "true");
+    }
+    browser.addEventListener("DOMWindowClose", event => {
+      if (browser.isConnected) {
+        browser.remove();
+      }
+      event.stopPropagation();
+      event.preventDefault();
+    });
+    document.documentElement.append(browser);
+    if (openWindowInfo.isForWindowDotPrint) {
+      // After returning the browser: the page is still waiting for it.
+      setTimeout(() => this.printCopy(browser), 0);
+    }
+    return browser;
+  },
+
+  async printCopy(browser) {
+    let done = () => {
+      if (browser.isConnected) {
+        browser.remove();
+      }
+    };
+    try {
+      let settings = await this.askPrintSettings();
+      if (!settings) {
+        done();
+        return;
+      }
+      await browser.browsingContext.print(settings);
+      // The engine closes the copy itself; this is in case it doesn't.
+      setTimeout(done, 5000);
+    } catch (e) {
+      done();
       this.showMessage(`Couldn't print: ${e.message}`, "error");
     }
   },
@@ -2569,8 +2640,11 @@ var Seijaku = {
     try {
       let picker = Cc["@mozilla.org/filepicker;1"].createInstance(Ci.nsIFilePicker);
       this.pickerInit(picker, "Save as", Ci.nsIFilePicker.modeSave);
-      picker.defaultString = name || this.fileNameFor(url);
-      let ext = /\.([a-z0-9]{1,8})$/i.exec(picker.defaultString)?.[1];
+      // The name is kept here: on Windows reading defaultString back
+      // throws NS_ERROR_FAILURE, which broke every Save as.
+      let fileName = name || this.fileNameFor(url);
+      picker.defaultString = fileName;
+      let ext = /\.([a-z0-9]{1,8})$/i.exec(fileName)?.[1];
       if (ext) {
         picker.defaultExtension = ext;
       }
@@ -2578,11 +2652,8 @@ var Seijaku = {
         picker.displayDirectory = this.downloadDir();
       } catch (e) { /* the picker's own folder */ }
       picker.appendFilters(Ci.nsIFilePicker.filterAll);
-      let result = await picker.open();
-      if (
-        (result != Ci.nsIFilePicker.returnOK && result != Ci.nsIFilePicker.returnReplace) ||
-        !picker.file
-      ) {
+      let path = await this.pickSavePath(picker, fileName);
+      if (!path) {
         return;
       }
       let source = { url, isPrivate: this.isPrivate };
@@ -2591,10 +2662,22 @@ var Seijaku = {
           source.referrerInfo = E10SUtils.deserializeReferrerInfo(referrerInfo);
         } catch (e) { /* no referrer, then */ }
       }
-      await this.startDownload(source, picker.file.path);
+      await this.startDownload(source, path);
     } catch (e) {
       this.showMessage(`Couldn't save that: ${e.message}`, "error");
     }
+  },
+
+  /** Shows the save dialog; the chosen file's path, or null. */
+  async pickSavePath(picker, fileName) {
+    let result = await picker.open();
+    if (
+      (result != Ci.nsIFilePicker.returnOK && result != Ci.nsIFilePicker.returnReplace) ||
+      !picker.file
+    ) {
+      return null;
+    }
+    return picker.file.path;
   },
 
   /** Ctrl+S: save this page's file. */

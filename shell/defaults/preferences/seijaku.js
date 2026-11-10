@@ -166,3 +166,8 @@ pref("pdfjs.handleOctetStream", true);
    blank with it), and no "PDFs just got easier" promotion bar. */
 pref("pdfjs.enableNova", false);
 pref("pdfjs.featuresNotificationImpressionLimit", 0);
+
+// Printing goes straight to the Windows print dialog (Seijaku has no
+// print preview); a page's window.print() copy then closes itself
+// when printing is done.
+pref("print.prefer_system_dialog", true);

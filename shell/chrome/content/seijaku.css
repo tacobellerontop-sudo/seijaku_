@@ -1243,3 +1243,15 @@ body {
 :root[popup] #edge-strip {
   display: none !important;
 }
+
+/* The copy of a page being printed (openPrintBrowser): the engine
+   needs a <browser> for it, nobody needs to see it. */
+browser[seijaku-print] {
+  position: fixed;
+  left: -10000px;
+  top: 0;
+  width: 800px;
+  height: 600px;
+  opacity: 0;
+  pointer-events: none;
+}
